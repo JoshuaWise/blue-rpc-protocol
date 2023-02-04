@@ -1,0 +1,25 @@
+{
+  "name": "scratch-rpc",
+  "version": "1.0.0",
+  "description": "A WebSockets RPC protocol/library with useful features",
+  "author": "Joshua Wise <joshuathomaswise@gmail.com>",
+  "homepage": "http://github.com/JoshuaWise/scratch-rpc",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/JoshuaWise/scratch-rpc.git"
+  },
+  "license": "MIT",
+  "main": "src/index.js",
+  "browser": "src/browser.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "tiny-msgpack": "^1.0.3",
+    "ws": "^8.12.0"
+  },
+  "optionalDependencies": {
+    "bufferutil": "^4.0.7",
+    "utf-8-validate": "^6.0.2"
+  }
+}

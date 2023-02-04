@@ -1,0 +1,163 @@
+# API
+
+- [function `listen`](#scratchrpclistenoptions)
+- [function `connect`](#scratchrpcconnecturl-options)
+- [class `ScratchClient`][ScratchClient]
+	- [`client.invoke(methodName, param)`](#clientinvokemethodname-param-abortsignal)
+	- [`client.notify(methodName, param)`](#clientnotifymethodname-param)
+	- [`client.listen(methods)`](#clientlisten-methods)
+	- [`client.close([error])`](#clientcloseerror)
+	- [`client.terminate([error])`](#clientterminateerror)
+	- [`client.closed`](#clientclosed)
+	- [`client.readyState`](#clientreadystate)
+	- [Ready state constants](#ready-state-constants)
+- [class `MethodContext`][MethodContext]
+	- [`context.notify(methodName, param)`](#contextnotifymethodname-param)
+	- [`context.broadcast(methodName, param)`](#contextbroadcastmethodname-param)
+	- [`context.isNotification`](#contextisnotification)
+
+### ScratchRPC.listen(options)
+
+- `options` [<Object>][Object]
+	- `server` [<http.Server>][HTTPServer] an HTTP or HTTPS server instance to attach to.
+	- `methods` [<Object>][Object] A map of RPC-style methods to serve.
+	- `maxPayload` [<number>][number] The maximum accepted size of incoming RPC requests (in bytes). **Default:** `1073741824` (1 GiB).
+	- `maxBufferedPayload` [<number>][number] The maximum accepted size of incoming RPC requests (in bytes), but not including the size of [Streams][ReadableStream]. **Default:** `1048576` (1 MiB).
+	- `perMessageDeflate` [<Object>][Object] | [<boolean>][boolean] Passed to the underling [WebSocketServer][WebSocketServer] to configure automatic [message compression](https://www.rfc-editor.org/rfc/rfc7692#section-7). **Default:** Enabled for messages at least `65536` bytes (64 KiB) in size.
+	- `verifyClient` [<Function>][Function] Passed to the underling [WebSocketServer][WebSocketServer] to conditionally accept or reject incoming connections. **Default**: `null`.
+	- `logger` [<Function>][Function] If provided, auto-generated server logs will be passed to this function, for convenience. **Default**: `null`.
+	- Any option allowed in [`server.listen()`](https://nodejs.org/api/net.html#serverlistenoptions-callback).
+- Returns: [<Promise][Promise][<WebSocketServer>][WebSocketServer][>][Promise]
+
+Creates and starts a [WebSocketServer](https://github.com/websockets/ws/blob/master/doc/ws.md#class-websocketserver) that uses Scratch-RPC to serve the given `methods`. By default, port `80` is used for [http.Servers][HTTPServer] and port `443` is used for [https.Servers][HTTPSServer], but you can pass any custom `port` you like.
+
+All RPC methods will receive a [MethodContext][MethodContext] as their second parameter, which exposes metadata about the invocation.
+
+The returned promise will not resolve until the server is ready to accept connections.
+
+##### Configuring `perMessageDeflate`
+
+Although compression can greatly reduce bandwidth usage, it also has significant CPU and memory costs. Usually these costs don't become a bottleneck unless you are processing thousands of messages per second (on a typical workstation in 2023). Usually, if you are processing that many messages per second, each message is so small that bandwidth is not even an issue. This is the rationale that led to the current default setting, which only compresses messages at least 64 KiB in size. It is a compromise that tries to minimize CPU and memory costs while still using compression in cases where you are likely to benefit from it.
+
+However, if you are sending a large number of *small* messages (below 64 KiB) and you want to hyper-optimize for low bandwidth usage (at the cost of higher CPU and memory consumpton), you can use the following `perMessageDeflate` settings:
+
+```js
+const perMessageDeflate = {
+	serverNoContextTakeover: false,
+	clientNoContextTakeover: false,
+	concurrencyLimit: 10,
+};
+```
+
+### ScratchRPC.connect(url[, options])
+
+- `url` [<string>][string] The URL of the Scratch-RPC server to connect to.
+- `options` [<Object>][Object]
+	- `perMessageDeflate` [<Object>][Object] | [<boolean>][boolean] Passed to the underling [WebSocket][WebSocket] to configure automatic [message compression](https://www.rfc-editor.org/rfc/rfc7692#section-7). **Default:** Enabled for messages at least `65536` bytes (64 KiB) in size.
+	- Any option allowed in [`http.request()`](https://nodejs.org/api/http.html#httprequesturl-options-callback) or [`https.request()`](https://nodejs.org/api/https.html#httpsrequesturl-options-callback).
+- Returns: [<Promise][Promise][<ScratchClient>][ScratchClient][>][Promise]
+
+Creates a Scratch-RPC client and connects to the specified server. In the browser, all options are ignored.
+
+The returned promise will not resolve until a connection with the server is successfully established.
+
+# class *ScratchClient*
+
+This class represents a client's Scratch-RPC connection. While connected, you can invoke methods on the remote server.
+
+### client.invoke(methodName, param[, abortSignal])
+
+- `methodName` [<string>][string] The name of the remote method to invoke.
+- `param` [<any>][any] The value to send to the remote method.
+- `abortSignal` [<AbortSignal>][AbortSignal] A signal that the remote server will receive, if triggered. **Default:** `null`.
+- Returns: [<Promise][Promise][<any>][any][>][Promise]
+
+Invokes a method on the remote server and returns a [Promise][Promise] that will resolve with the method's result. If the method throws an exception, the promise will be rejected with the error. If [client.readyState](#clientreadystate) is not [OPEN](#ready-state-constants), the returned promise will never resolve.
+
+### client.notify(methodName, param)
+
+- `methodName` [<string>][string] The name of the remote method to invoke.
+- `param` [<any>][any] The value to send to the remote method.
+- Returns: [<undefined>][undefined]
+
+This is the same as [client.invoke()](#clientinvokemethodname-param-abortsignal) except that it returns nothing and it cannot be aborted. In Scratch-RPC, notifications are a way of invoking remote methods without needing an RPC response.
+
+### client.close([error])
+
+- `error` [<Error>][Error] An optional error reason for closing the connection.
+- Returns: [Promise][Promise]
+
+Closes the underlying WebSocket connection. If an `error` is passed, it will be used to reject the [client.closed](#clientclosed) promise. If the `error` object has the properties `code` and/or `reason`, they will be included in the WebSocket's [close frame](https://www.rfc-editor.org/rfc/rfc6455#section-5.5.1). Any queued messages will be gracefully sent before closing the underlying socket.
+
+For convenience, the [client.closed](#clientclosed) promise is returned.
+
+### client.terminate([error])
+
+- `error` [<Error>][Error] An optional error reason for closing the connection.
+- Returns: [Promise][Promise]
+
+This is the same as [client.close()](#clientcloseerror) except that the underlying WebSocket connection is immediately destroyed without gracefully waiting for queued messages to finish.
+
+For convenience, the [client.closed](#clientclosed) promise is returned.
+
+This method is not available on browser clients.
+
+### client.closed
+
+- [<Promise>][Promise]
+
+Read-only property containing a promise that will be resolved when the Scratch-RPC connection is closed. If the connection closes due to an error, the promise will be rejected with that [Error][Error].
+
+### client.readyState
+
+- [<number>][number]
+
+Read-only property containing one of the [ready state constants](#ready-state-constants), indicating the state of the connection.
+
+### Ready state constants
+
+These constants are available as static properties of [ScratchClient][ScratchClient], and they are also available on the default export.
+
+| Constant   | Value | Description                                            |
+| ---------- | ----- | ------------------------------------------------------ |
+| OPEN       | 1     | The connection is open and ready to communicate.       |
+| CLOSING    | 2     | The connection can receive messages but not send them. |
+| CLOSED     | 3     | The connection can no longer communicate.              |
+
+# class *MethodContext*
+
+### context.abortSignal
+
+- [<AbortSignal>][AbortSignal]
+
+Read-only property communicating whether this RPC method was aborted by the client. Note that the client can trigger this explicitly but it will also be triggered automatically if the WebSocket connection closes.
+
+### context.isNotification
+
+- [<boolean>][boolean]
+
+Read-only property indicating whether this RPC method was invoked as a notification.
+
+
+
+[any]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Data_structures#Data_types
+[undefined]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Data_structures#undefined_type
+[null]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Data_structures#null_type
+[boolean]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Data_structures#Boolean_type
+[number]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Data_structures#Number_type
+[string]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Data_structures#String_type
+[Array]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array
+[Object]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object
+[Function]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function
+[Error]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Error
+[Promise]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise
+[AbortSignal]: https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal
+[Buffer]: https://nodejs.org/api/buffer.html#class-buffer
+[ReadableStream]: https://nodejs.org/api/stream.html#class-streamreadable
+[WritableStream]: https://nodejs.org/api/stream.html#class-streamwritable
+[HTTPServer]: https://nodejs.org/api/http.html#class-httpserver
+[HTTPSServer]: https://nodejs.org/api/https.html#class-httpsserver
+[WebSocketServer]: https://github.com/websockets/ws/blob/master/doc/ws.md#class-websocketserver
+[WebSocket]: https://github.com/websockets/ws/blob/master/doc/ws.md#new-websocketaddress-protocols-options
+[ScratchClient]: #class-scratchclient
+[MethodContext]: #class-methodcontext
