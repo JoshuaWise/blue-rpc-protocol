@@ -67,7 +67,7 @@ module.exports = class ScratchClient extends EventEmitter {
 			// If the message is invalid, we close the connection.
 			let msg = parseResponse(stringOrBuffer) || parseRequest(stringOrBuffer);
 			if (msg === null || msg.method && msg.id || !msg.method && !this[pending].has(msg.id)) {
-				sock.close(1008);
+				sock.close(1008); // TODO: add reason message
 				emitError(new Error('Invalid message received'));
 			} else if (msg.method) {
 				this.emit(`notification:${msg.method}`, ...msg.params);
@@ -85,8 +85,9 @@ module.exports = class ScratchClient extends EventEmitter {
 		// Send a ping after periods of inactivity, and expect some activity in response.
 		const checkHeartbeat = () => {
 			if (++heartbeatAttempt > HEARTBEAT_TRIES) {
+				// TODO: send 1001
 				sock.terminate();
-				emitError(new Error('WebSocket heartbeat failure'));
+				emitError(new Error('WebSocket heartbeat failure')); // TODO: raise 1006
 			} else {
 				if (sock.readyState === WebSocket.OPEN) {
 					sock.ping();

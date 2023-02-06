@@ -18,7 +18,75 @@ The Client is defined as the initiator of the WebSocket connection, the origin o
 The Server is defined as the acceptor of the WebSocket connection, the origin of Responses, and the handler of Requests.
 A Peer is either a Client or a Server.
 
-## 3 Stream
+## 3 Request message
+
+An RPC call is represented by sending a Request message from the Client to the Server, across the WebSocket connection.
+
+A Request is serialized as an Array with these four elements:
+
+- The first element is an Integer whose value is "0".
+- The second element is an Integer whose value is a Request ID (see below).
+- The third element is a String whose value is the name of the requested method.
+- The fourth element is any value within the Scratch-RPC type system, representing the "parameter" being passed to the method call.
+
+Each Request is coupled with a Request ID. The Request ID is an Integer containing an unsigned 32-bit value. Request IDs MUST be unique among all Requests sent by the same Client through the same WebSocket connection, throughout the entire lifespan of the WebSocket connection.
+
+When a Client sends a Request, they MUST store its Request ID within a set of "open Request IDs". This set MUST NOT be shared across the Client's WebSocket connections, if more than one connection exists.
+
+When a Server receives a Request, it MUST reply with a Response message containing the same Request ID (except in the case of Notifications, discussed later).
+
+If a Client receives a Request, it SHOULD close the WebSocket connection with a status code of "1008".
+
+### 3.1 Notification message
+
+A Notification is a special kind of Request that has no Request ID. A Notification is serialized as an Array with these three elements:
+
+- The first element is an Integer whose value is "1".
+- The second element is a String whose value is the name of the requested method.
+- The third element is any value within the Scratch-RPC type system, representing the "parameter" being passed to the method call.
+
+Notifications are used to invoke methods without expecting a response. This is useful for simulating unidirectional "events". Servers MAY change their behavior depending on whether a method was invoked as a Notification or not. For example, if a Server knows it doesn't need to generate a response, it may avoid some expensive operations.
+
+A Server MUST NOT send a Response in reply to a Notification.
+
+## 4 Response message
+
+When an RPC call is made, the Server MUST reply by sending a Response, unless the call was a Notification.
+
+If the method handler was successful, the Response is serialized as an Array with these three elements:
+
+- The first element is an Integer whose value is "2".
+- The second element is an Integer whose value is the associated Request ID.
+- The third element is any value within the Scratch-RPC type system, representing the "return value" of the method call.
+
+If the method handler was *not* successful (i.e., it encountered an error), *or* the requested method is not implemented, the Response is serialized as an Array with these three elements:
+
+- The first element is an Integer whose value is "3".
+- The second element is an Integer whose value is the associated Request ID.
+- The third element is an Error.
+
+It is RECOMMENDED that implementations provide programmers with the ability to customize the Error, even in cases where the requested method was not implemented.
+
+If a Client receives a Response, it MUST remove its associated Request ID from the set of "open Request IDs". If a Client receives a Response whose Request ID is not within the set of "open Request IDs", it MUST ignore it.
+
+If a Server receives a Response, it SHOULD close the WebSocket connection with a status code of "1008".
+
+## 5 Cancellation message
+
+Clients SHOULD have the ability to "cancel" an RPC call that they initiated. If a Client decides to cancel an RPC call, its Request ID MUST immediately be removed from the set of "open Request IDs".
+
+Also, if (and only if) the cancelled Request ID was actually in the set of "open Request IDs", the Client MUST immediately send a Cancellation message serialized as an Array of these two elements:
+
+- The first element is an Integer whose value is "4".
+- The second element is an Integer whose value is the associated Request ID.
+
+Attempting to cancel an RPC call more than once, or attempting to cancel after already receiving an associated Response, naturally results in a no-op. In such cases, a Cancellation SHOULD NOT be sent.
+
+After a Server receives a Cancellation, it SHOULD NOT ever send a Response with the same Request ID across the same WebSocket connection. If a Server receives a Cancellation containing a Request ID that it does not recognize, it MUST ignore it.
+
+If a Client receives a Cancellation, it SHOULD close the WebSocket connection with a status code of "1008".
+
+## 6 Stream
 
 It's useful to be able to send octet streams of unknown length. It's particularly useful when large amounts of data can be sent in small pieces that can be processed on-the-fly, to reduce memory consumption. Also, it's useful for "publish-subscribe" mechanisms to have the concept of a data channel which has a beginning and (potentially) an end. With these goals in mind, Scratch-RPC defines the Stream extension type for MessagePack.
 
@@ -28,145 +96,105 @@ The Stream extension type MUST be assigned to the extension type "0". Serializer
 - Byte 5 is "1" if the Stream is an Octet Stream, or "0" otherwise.
 - Bytes 6-8 are all "0".
 
-Each Stream is coupled with a Stream ID which is unique among all Streams sent by the same Peer through the same WebSocket connection, throughout the entire lifespan of the WebSocket connection. The Stream ID is a 32-bit, big-endian, unsigned integer.
+Each Stream is coupled with a Stream ID which is unique among all Streams sent by the same Peer through the same WebSocket connection, throughout the entire lifespan of the WebSocket connection. The Stream ID is a 32-bit, big-endian, unsigned integer. After sending a WebSocket message containing a Stream, the Peer MUST NOT ever send a Stream with the same Stream ID through the same WebSocket connection, throughout the entire lifespan of the WebSocket connection. However, a single Stream MAY appear multiple times within the same WebSocket message, in which case each appearance SHOULD reference the same entity after deserialization.
 
-If a Stream is an Octet Stream (controlled by byte 5), it can only represents octets. Otherwise, it can represent any values within the Scratch-RPC type system.
+If a Stream is an Octet Stream (controlled by byte 5), it can only represent octets. Otherwise, it is an Object Stream and can represent any *non-Stream* values within the Scratch-RPC type system.
 
 When a Peer receives a Stream, they SHOULD store its associated Stream ID within a set of "open Stream IDs". This set MUST NOT be shared across the Peer's WebSocket connections, if more than one connection exists.
 
-Deserializers MUST ignore the seven unused bits of byte 5 and bytes 6-8. That space is reserved for future versions of this specification.
+Deserializers MUST ignore bytes 6-8 and the seven unused bits of byte 5. That space is reserved for future versions of this specification.
 
-### 3.1 Stream Chunk message
+### 6.1 Stream Chunk message
 
 After a Peer sends a Stream, it SHOULD send one or more associated Stream Chunk messages across the same WebSocket connection. Stream Chunks provide the actual data represented by the Stream.
 
-If no error has occurred in generating the data to be streamed, the Stream Chunk is serialized as an Array with these four elements:
+If no error has occurred in generating the data to be streamed, the Stream Chunk is serialized as an Array with these three elements:
 
-- The first element is an Integer whose value is "0".
-- The second element is True for the last Stream Chunk of a Stream, and False otherwise.
-- The third element is an Integer whose value is the associated Stream ID.
-- The fourth element is any value: the actual data represented by the Stream. If the associated Stream is an Octet Stream, this element MUST be Binary.
+- The first element is an Integer whose value is "5".
+- The second element is an Integer whose value is the associated Stream ID.
+- The third element, called the "Stream Data", is always Binary. For Octet Streams, it contains the actual octets represented by the Stream. For Object Streams, it contains any serialized value within the Scratch-RPC type system, but MUST NOT contain any Streams (even if nested within other values).
+
+If no error has occurred but there is no more data to be streamed, a Stream Chunk MUST be sent, serialized as an Array with these two elements:
+
+- The first element is an Integer whose value is "6".
+- The second element is an Integer whose value is the associated Stream ID.
 
 If an error *has* occured in generating the data to be streamed, a Stream Chunk MUST be sent, serialized as an Array with these three elements:
 
-- The first element is an Integer whose value is "1".
+- The first element is an Integer whose value is "7".
 - The second element is an Integer whose value is the associated Stream ID.
-- The third element is an Error.
+- The third element is an Error which MUST NOT contain any Streams (even if nested within other values).
 
-A Final Stream Chunk is a Stream Chunk that satisfies one of the following conditions:
+A Peer MUST NOT send Stream Chunks associated with a Stream ID that was not previously sent across the same WebSocket connection. A Stream Chunk whose first element is either "6" or "7" is called a Final Stream Chunk. After a Peer sends a Final Stream Chunk, it MUST NOT ever send any more Stream Chunks with the same Stream ID across the same WebSocket connection.
 
-- It contains "0" as its first element and True as its second element.
-- It contains "1" as its first element.
+If a Peer receives a Final Stream Chunk, it MUST remove its associated Stream ID from the set of "open Stream IDs". If a Peer receives a Stream Chunk whose Stream ID is not within the set of "open Stream IDs", it MUST ignore it. If a Peer receives a Stream Chunk that contains another Stream (either within Stream Data or within a Final Stream Chunk's Error), it SHOULD close the WebSocket connection with a status code of "1008".
 
-A Peer MUST NOT send Stream Chunks associated with a Stream ID that was not previously sent across the same WebSocket connection. After a Peer sends a Final Stream Chunk, it MUST NOT ever send any more Stream Chunks with the same Stream ID across the same WebSocket connection.
-
-If a Peer receives a Final Stream Chunk, it MUST remove its associated Stream ID from the set of "open Stream IDs". If a Peer receives a Stream Chunk whose Stream ID is not within the set of "open Stream IDs", it MUST ignore it. If a Peer receives a Stream Chunk whose first element is "0" and whose fourth element is not Binary, but whose associated Stream is an Octet Stream, it SHOULD close the WebSocket connection with a status code of "1008".
+A Stream MAY be "empty", which means it has no associated non-Final Stream Chunks. Independently, a Stream MAY be "endless", which means it has no associated Final Stream Chunk. However, implementations should take care to clean up all Streams, even endless ones, when the WebSocket connection closes.
 
 If a Stream is *not* an Octet Stream, the user which reads the Stream contents MUST receive each value exactly as they were sent in each Stream Chunk. However, Octet Streams are more lenient: the user MAY receive the Stream's octets in slices that differ from the slices that were delivered by the Stream Chunks, as long as the total concatenation of all slices remains unchanged.
 
-### 3.2 Stream Cancel message
+### 6.2 Stream Cancellation message
 
 Users SHOULD have the ability to "cancel" a Stream that they received. If a user decides to cancel such a Stream, its Stream ID MUST immediately be removed from the set of "open Stream IDs".
 
-Also, if (and only if) the cancelled Stream ID was actually in the set of "open Stream IDs", the cancelling Peer MUST immediately send a Stream Cancel message serialized as an Array of these two elements:
+Also, if (and only if) the cancelled Stream ID was actually in the set of "open Stream IDs", the cancelling Peer MUST immediately send a Stream Cancellation message serialized as an Array of these two elements:
 
-- The first element is an Integer whose value is "2".
+- The first element is an Integer whose value is "8".
 - The second element is an Integer whose value is the associated Stream ID.
 
-Attempting to cancel a Stream more than once, or attempting to cancel a Stream after already receiving an associated Final Stream Chunk, naturally results in a no-op. In such cases, a Stream Cancel SHOULD NOT be sent.
+Attempting to cancel a Stream more than once, or attempting to cancel a Stream after already receiving an associated Final Stream Chunk, naturally results in a no-op. In such cases, a Stream Cancellation SHOULD NOT be sent.
 
-After a Peer receives a Stream Cancel, it SHOULD NOT ever send any more Stream Chunks with the same Stream ID across the same WebSocket connection. If a Peer receives a Stream Cancel containing a Stream ID that it does not recognize, it MUST ignore it.
+After a Peer receives a Stream Cancellation, it SHOULD NOT ever send any more Stream Chunks with the same Stream ID across the same WebSocket connection. If a Peer receives a Stream Cancellation containing a Stream ID that it does not recognize, it MUST ignore it.
 
-## 4 Error
+Whenever a Peer receives a WebSocket message that it ignores (for example, receiving a Response whose Request ID is not within the set of "open Request IDs"), there is a possibility that the ignored message contains one or more Streams. In such cases, the Peer MUST immediately send a Stream Cancellation for each of the received Streams.
+
+### 6.3 Stream Signal message
+
+Stream Signal messages are sent by the receiver of a Stream to provide hints for the Stream's sender to operate more efficiently. This process is often referred to as "flow control" or "backpressure".
+
+When a Peer initially receives a Stream, they MUST promptly send a Stream Signal. Also, an additional Stream Signal MUST be sent each time the available space in the Stream's associated buffer changes by some fixed amount (this amount may vary per Stream), compared to when the previous Stream Signal was sent. For example, if a Stream Signal is sent when the buffer's available space is 10 MiB, then the next Stream Signal could be sent when the available space crosses either 5 MiB or 15 MiB. A Stream Signal is serialized as an Array with these four elements:
+
+- The first element is an Integer whose value is "9".
+- The second element is an Integer whose value is the associated Stream ID.
+- The third element is an Integer whose value is sum of the sizes of all Stream Data received so far for the associated Stream, in KiB. For the first Stream Signal associated with a Stream, this will generally be "0".
+- The fourth element is an Integer whose value represents the number of KiB of remaining space in the receiver's buffer for the associated Stream.
+
+Each time a Peer receives a Stream Signal, it is RECOMMENDED that they pause the stream unless/until the supposed available space is greater than or equal to the size of their next unsent piece of Stream Data. Additionally, it is RECOMMENDED that they compare the Stream Signal's third element with their own record of sent Stream Data to more accurately predict the other Peer's available space, despite any network latency.
+
+Peers MAY ignore any Stream Signal that they receive. Therefore, buffers associated with Streams need to be prepared to buffer any amount of data. In other words, the fourth element of a Stream Signal does not necessarily represent a true "hard limit" on available space.
+
+After a Peer sends a Stream Cancellation *or* receives a Final Stream Chunk, it SHOULD NOT ever send any more Stream Signals with the same Stream ID across the same WebSocket connection. If a Peer receives a Stream Signal containing a Stream ID that it does not recognize, it MUST ignore it.
+
+When a Peer receives a Stream, it MAY choose to immediately reply with a Stream Cancellation. In such cases, the Peer is not required to send a Stream Signal as it normally would.
+
+## 7 Error
 
 It's useful to have a consistent way of representing application errors. To that end, Scratch-RPC defines the Error extension type for MessagePack.
 
 The Error extension type MUST be assigned to the extension type "1". Serializers MUST encode its "data segment" as a Map with at least one String key called "message" whose value is a String. The Map MAY have other key-value pairs.
 
-## 5 Request message
-
-An RPC call is represented by sending a Request message from the Client to the Server, across the WebSocket connection.
-
-A Request is serialized as an Array with these four elements:
-
-- The first element is an Integer whose value is "3".
-- The second element is the associated Request ID (see below).
-- The third element is a String whose value is the name of the requested method.
-- The fourth element is any value within the Scratch-RPC type system, representing the "parameter" being passed to the method call.
-
-Each Request is coupled with a Request ID. The Request ID is either Nil *or* an Integer containing an unsigned 32-bit value. Request IDs that are not Nil MUST be unique among all Requests sent by the same Client through the same WebSocket connection, throughout the entire lifespan of the WebSocket connection.
-
-When a Client sends a Request with a non-Nil Request ID, they MUST store the Request ID within a set of "open Request IDs". This set MUST NOT be shared across the Client's WebSocket connections, if more than one connection exists.
-
-When a Server receives a Request with a non-Nil Request ID, it MUST send back a Response message containing the same Request ID.
-
-If a Client receives a Request, it SHOULD close the WebSocket connection with a status code of "1008".
-
-### 5.1 Notification message
-
-A Request with a Nil Request Id is called a Notification. Notifications are used to invoke methods without expecting a response. This is useful for simulating unidirectional "events". Servers MAY change their behavior depending on whether a method was invoked as a Notification or not. For example, if a Server knows it doesn't need to generate a response, it may avoid some expensive operations.
-
-A Server MUST NOT send a Response in reply to a Notification.
-
-## 6 Response message
-
-When an RPC call is made, the Server MUST reply by sending a Response, unless the call was a Notification.
-
-If the method handler was successful, the Response is serialized as an Array with these three elements:
-
-- The first element is an Integer whose value is "4".
-- The second element is the associated Request ID.
-- The third element is any value within the Scratch-RPC type system, representing the "return value" of the method call.
-
-If the method handler was *not* successful (i.e., it encountered an error), *or* the requested method is not implemented, the Response is serialized as an Array with these three elements:
-
-- The first element is an Integer whose value is "5".
-- The second element is the associated Request ID.
-- The third element is an Error.
-
-It is RECOMMENDED that implementations provide programmers with the ability to customize the Error, even in cases where the requested method was not implemented.
-
-If a Client receives a Response, it MUST remove its associated Request ID from the set of "open Request IDs". If a Client receives a Response whose Request ID is not within the set of "open Request IDs", it MUST ignore it.
-
-If a Server receives a Response, it SHOULD close the WebSocket connection with a status code of "1008".
-
-### 6.1 Response Cancel message
-
-Clients SHOULD have the ability to "cancel" an RPC call that they initiated. If a Client decides to cancel an RPC call, its Request ID MUST immediately be removed from the set of "open Request IDs".
-
-Also, if (and only if) the cancelled Request ID was actually in the set of "open Request IDs", the Client MUST immediately send a Response Cancel message serialized as an Array of these two elements:
-
-- The first element is an Integer whose value is "6".
-- The second element is an Integer whose value is the associated Request ID.
-
-Attempting to cancel an RPC call more than once, or attempting to cancel after already receiving an associated Response, naturally results in a no-op. In such cases, a Response Cancel SHOULD NOT be sent.
-
-After a Server receives a Response Cancel, it SHOULD NOT ever send a Response with the same Request ID across the same WebSocket connection. If a Server receives a Response Cancel containing a Request ID that it does not recognize, it MUST ignore it.
-
-If a Client receives a Response Cancel, it SHOULD close the WebSocket connection with a status code of "1008".
-
-## 7 WebSocket handling
+## 8 WebSocket handling
 
 A Scratch-RPC connection inherits the same lifecycle as the underlying WebSocket connection. Therefore, a Scratch-RPC connection is established the moment a WebSocket connection is successfully established, and a Scratch-RPC connection is considered "closed" the moment its underlying WebSocket connection is considered "closed".
 
 All messages sent across the WebSocket connection MUST be sent in binary frames. If a Peer receives a text frame, it SHOULD close the WebSocket connection with a status code of "1003".
 
-### 7.1 WebSocket compresion
+### 8.1 WebSocket compresion
 
 It is RECOMMENDED for Scratch-RPC Server and Client implementations to support the [permessage-deflate][4] WebSocket extension. It is RECOMMENDED that this extension is enabled by default, with default extension parameters that are appropriate for the implementation's use-cases.
 
-### 7.2 WebSocket payload limits
+### 8.2 WebSocket payload limits
 
 Implementations SHOULD configure two variables for controlling payload limits on the Scratch-RPC connection (whether or not these variables are configurable by the user is OPTIONAL):
 
 - MAX_PAYLOAD (RECOMMENDED default is 1 GiB)
 - MAX_BUFFERED_PAYLOAD (RECOMMENDED default is 1 MiB)
 
-MAX_PAYLOAD defines the maximum size of a Request or Response, including streams, while MAX_BUFFERED_PAYLOAD defines the maximum size of a Request or Response, *excluding* streams.
+MAX_PAYLOAD defines the maximum size of a Request or Response, including associated Stream Chunks. MAX_BUFFERED_PAYLOAD defines the maximum size of any individual WebSocket message (i.e., an individual Stream Chunk, or a Request or Response, *excluding* associated Stream Chunks).
 
 If a Peer receives a message that violates one of these limits, it SHOULD close the WebSocket connection with a status code of "1009".
 
-### 7.3 WebSocket timeouts and heartbeats
+### 8.3 WebSocket timeouts and heartbeats
 
 Scratch-RPC defines a heartbeat mechanism for automatically closing hanging connections. Implementations MUST configure three variables for controlling these timeouts (whether or not these variables are configurable by the user is OPTIONAL):
 
@@ -200,15 +228,17 @@ DEFINE Terminate:
 		Raise a timeout exception containing status code "1006"
 ```
 
-Whenever a Peer receives a WebSocket "ping" frame, it MUST immediately reply with a WebSocket "pong" frame.
+Implementations should ensure that all relevant timers are cleaned up when a WebSocket connection closes for any reason.
 
-Implementations SHOULD ensure that all relevant timers are cleaned up when a WebSocket connection closes for any reason.
-
-### 7.4 WebSocket connection closure
+### 8.4 WebSocket connection closure
 
 If a Peer closes a Scratch-RPC connection without error, they SHOULD use the status code "1000" or "1001".
 
-If a Peer receives a message that does not adhere to the serializations defined by this specification, it SHOULD close the WebSocket connection with a status code of "1008". However, if a message Array has more elements than the number defined by this specification, the additional elements MUST be ignored. Such additional elements are reserved for future versions of this specification. Similarly, if a Peer receives a message that is an Array whose first element is an Integer equal to "8", it MUST be ignored. If a Peer receives a MessagePack type that is not recognized by this specification, it is RECOMMENDED to close the WebSocket connection with a status code of "1008", but it MAY instead choose some implementation-specific or application-specific handling.
+If a Peer receives a message that is an Array whose first element is an Integer with a value of "10" or any negative number, it SHOULD close the WebSocket connection with a status code of "1008". Otherwise, if a Peer receives a message that is an Array whose first element is an Integer not defined by this specification, it MUST be ignored; such messages are reserved for future versions of this specification.
+
+If a Peer receives a MessagePack type that is not recognized by this specification, it is RECOMMENDED to close the WebSocket connection with a status code of "1008", but it MAY instead choose some implementation-specific or application-specific handling.
+
+If a Peer receives a message Array with a different number of elements than defined by this specification, it SHOULD close the WebSocket connection with a status code of "1008". If a Peer receives a message that is not an Array, or otherwise does not adhere to the serializations defined by this specification, it SHOULD close the WebSocket connection with a status code of "1008".
 
 
 
