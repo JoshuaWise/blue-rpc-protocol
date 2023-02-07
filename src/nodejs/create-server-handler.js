@@ -4,7 +4,7 @@ const MethodContext = require('./method-context');
 const StreamReceiver = require('../common/stream-receiver');
 const createIncrementor = require('../common/create-incrementor');
 const createHeartbeat = require('../common/create-heartbeat');
-const validateMessage = require('../common/validate-message');
+const parseMessage = require('../common/parse-message');
 const Encoder = require('../common/encoder');
 const Stream = require('../common/stream');
 const M = require('../common/message');
@@ -92,6 +92,9 @@ module.exports = (methods, logger) => {
 				if (!Stream.isLocked(stream)) {
 					Stream.cancel(stream);
 					receivedStreams.delete(streamId);
+					// TODO: technically we should only send this if the streamId was in
+					//   receivedStreams, but it won't be there for cases where we are
+					//   ignoring the message, so we are currently sending it unconditionally
 					socket.send(encoder.encodeInert([M.STREAM_CANCELLATION, streamId]));
 				}
 			}
@@ -126,57 +129,24 @@ module.exports = (methods, logger) => {
 			.on('message', (rawMsg) => {
 				onActivity();
 
-				if (typeof rawMsg === 'string') {
-					logger('Socket[%s] received forbidden text frame', socketId);
-					socket.close(1003, 'Text frames not allowed');
-					return;
-				}
-
-				let msg, streams;
+				let msgType, msg, streams;
 				try {
-					const result = encoder.decode(rawMsg);
-					msg = result.result;
-					streams = result.streams;
+					[msgType, msg, streams] = parseMessage(
+						rawMsg, encoder, messageHandlers, receivedStreams, requests
+					);
 				} catch (err) {
-					logger('Socket[%s] received invalid MessagePack\n%s', socketId, err);
-					socket.close(1008, err.msgpackExtensionType ? err.message : 'Invalid MessagePack');
+					logger('Socket[%s] %s', socketId, err.message);
+					socket.close(err.code, err.reason);
 					return;
 				}
 
-				if (!validateMessage(msg) || msg[0] === M.RESPONSE_SUCCESS || msg[0] === M.RESPONSE_FAILURE) {
-					logger('Socket[%s] received invalid Scratch-RPC message', socketId);
-					socket.close(1008, 'Invalid message');
-					return;
-				}
-
-				const handler = messageHandlers.get(msg[0]);
-				if (!handler) {
+				const handler = messageHandlers.get(msgType);
+				if (handler) {
+					handler(msg, streams);
+				} else {
 					logger('Socket[%s] received unknown Scratch-RPC message', socketId);
 					discardStreams(streams);
-					return;
 				}
-
-				if (msg[0] === M.STREAM_CHUNK_ERROR && streams.size) {
-					logger('Socket[%s] received forbidden stream nesting', socketId);
-					socket.close(1008, 'Stream nesting not allowed');
-					return;
-				}
-
-				if (msg[0] === M.REQUEST && requests.has(msg[1])) {
-					logger('Socket[%s] received duplicate request ID', socketId);
-					socket.close(1008, 'Illegal duplicate ID');
-					return;
-				}
-
-				for (const streamId of streams.keys()) {
-					if (receivedStreams.has(streamId)) {
-						logger('Socket[%s] received duplicate stream ID', socketId);
-						socket.close(1008, 'Illegal duplicate ID');
-						return;
-					}
-				}
-
-				handler(msg, streams);
 			});
 
 		const messageHandlers = new Map([
