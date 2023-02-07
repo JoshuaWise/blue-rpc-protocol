@@ -1,11 +1,12 @@
 'use strict';
 const Stream = require('./stream');
+const { parseStream } = require('./parse-message');
 
-const HIGH_WATER_MARK = 1024 * 1024 * 10; // TODO: make configurable
+const HIGH_WATER_MARK = 1024 * 1024 * 10; // TODO: test efficiency, and make configurable
 const SIGNAL_THRESHOLD = HIGH_WATER_MARK / 8;
 
 module.exports = class StreamReceiver {
-	constructor(stream, encoder) {
+	constructor(stream, encoder, { onCancellation, onSignal }) {
 		this._stream = stream;
 		this._encoder = encoder;
 		this._shouldDecode = !Stream.isOctetStream(stream);
@@ -17,8 +18,8 @@ module.exports = class StreamReceiver {
 		this._destroyed = false;
 		this._paused = false;
 		this._didSignal = false;
-		this.onCancellation = null;
-		this.onSignal = null;
+		this._onCancellation = onCancellation;
+		this._onSignal = onSignal;
 
 		Stream.onResume(stream, () => {
 			this._paused = false;
@@ -44,7 +45,7 @@ module.exports = class StreamReceiver {
 			this._buffer = [];
 			this._bufferSize = 0;
 			this._destroyed = true;
-			this.onCancellation();
+			this._onCancellation();
 		});
 
 		Promise.resolve().then(() => {
@@ -56,7 +57,7 @@ module.exports = class StreamReceiver {
 
 	_checkSignal() {
 		if (Math.abs(this._bufferSize - this._signalledBufferSize) > SIGNAL_THRESHOLD) {
-			this.onSignal(this._receivedBytes, HIGH_WATER_MARK - this._bufferSize);
+			this._onSignal(this._receivedBytes, HIGH_WATER_MARK - this._bufferSize);
 			this._signalledBufferSize = this._bufferSize;
 			this._didSignal = true;
 		}
@@ -64,21 +65,12 @@ module.exports = class StreamReceiver {
 
 	_handleData(data) {
 		if (this._shouldDecode) {
-			let value, streams;
+			let value;
 			try {
-				const result = this._encoder.decode(data);
-				value = result.result;
-				streams = result.streams;
+				value = parseStream(data, this._encoder);
 			} catch (err) {
-				// TODO: this should actually close the entire WebSocket connection
-				this.error(new Error('Received invalid MessagePack'));
-				this.onCancellation();
-				return;
-			}
-			if (streams.size) {
-				// TODO: this should actually close the entire WebSocket connection
-				this.error(new Error('Received forbidden stream nesting'));
-				this.onCancellation();
+				this.error(new Error(`Scratch-RPC: ${err.message}`));
+				this._onCancellation(err);
 				return;
 			}
 			if (Stream.canWriteNull || value !== null) {

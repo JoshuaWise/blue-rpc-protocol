@@ -3,8 +3,8 @@ const WebSocket = require('ws');
 const MethodContext = require('./method-context');
 const StreamReceiver = require('../common/stream-receiver');
 const createIncrementor = require('../common/create-incrementor');
-const createHeartbeat = require('../common/create-heartbeat');
 const parseMessage = require('../common/parse-message');
+const Heartbeat = require('../common/heartbeat');
 const Encoder = require('../common/encoder');
 const Stream = require('../common/stream');
 const M = require('../common/message');
@@ -27,9 +27,7 @@ module.exports = (methods, logger) => {
 
 	return (socket) => {
 		const socketId = getSocketId();
-		// TODO: maybe make heartbeat into a class, and remove this abortController
-		const abortController = new AbortController();
-		const onActivity = createHeartbeat(onHeartbeat, abortController.signal);
+		const heartbeat = new Heartbeat(onHeartbeat);
 		const encoder = new Encoder();
 		const requests = new Map();
 		const notifications = new Set();
@@ -76,20 +74,25 @@ module.exports = (methods, logger) => {
 
 		function receiveStreams(streams) {
 			for (const [streamId, stream] of streams) {
-				const receiver = new StreamReceiver(stream, encoder);
+				const receiver = new StreamReceiver(stream, encoder, {
+					onCancellation: (err) => {
+						if (receivedStreams.delete(streamId)) {
+							socket.send(encoder.encodeInert([M.STREAM_CANCELLATION, streamId]));
+						}
+						if (err) {
+							logger('Socket[%s] %s', socketId, err.message);
+							socket.close(err.code, err.reason);
+						}
+					},
+					onSignal: (received, available) => {
+						if (receivedStreams.has(streamId)) {
+							received = Math.floor(received / 1024);
+							available = Math.floor(available / 1024);
+							socket.send(encoder.encodeInert([M.STREAM_SIGNAL, streamId, received, available]));
+						}
+					},
+				});
 				receivedStreams.set(streamId, receiver);
-				receiver.onCancellation = () => {
-					if (receivedStreams.delete(streamId)) {
-						socket.send(encoder.encodeInert([M.STREAM_CANCELLATION, streamId]));
-					}
-				};
-				receiver.onSignal = (received, available) => {
-					if (receivedStreams.has(streamId)) {
-						received = Math.floor(received / 1024);
-						available = Math.floor(available / 1024);
-						socket.send(encoder.encodeInert([M.STREAM_SIGNAL, streamId, received, available]));
-					}
-				};
 			}
 		}
 
@@ -106,9 +109,7 @@ module.exports = (methods, logger) => {
 
 		socket
 			.on('close', () => {
-				// TODO: clean this up
 				logger('Socket[%s] closed', socketId);
-				abortController.abort();
 				for (const abortController of requests.values()) {
 					abortController.abort();
 				}
@@ -116,23 +117,24 @@ module.exports = (methods, logger) => {
 					abortController.abort();
 				}
 				for (const receiver of receivedStreams.values()) {
-					receiver.error(abortController.signal.reason);
+					receiver.error(new Error('Scratch-RPC: WebSocket disconnected'));
 				}
 				requests.clear();
 				notifications.clear();
 				receivedStreams.clear();
+				heartbeat.stop();
 			})
 			.on('error', (err) => {
 				logger('Socket[%s] error: %s', socketId, err);
 			})
 			.on('ping', () => {
-				onActivity();
+				heartbeat.reset();
 			})
 			.on('pong', () => {
-				onActivity();
+				heartbeat.reset();
 			})
 			.on('message', (rawMsg) => {
-				onActivity();
+				heartbeat.reset();
 
 				let msgType, msg, streams;
 				try {

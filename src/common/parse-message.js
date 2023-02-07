@@ -68,6 +68,28 @@ module.exports = (rawMsg, encoder, allowedMessageTypes, streamIds, requestIds) =
 	return [msgType, msg.slice(1), streams];
 };
 
+// Parses a chunk of stream data, ensuring it contains no nested streams.
+module.exports.parseStream = (rawData, encoder) => {
+	let result, streams;
+	try {
+		{ result, streams } = encoder.decode(rawData);
+	} catch (err) {
+		throw createError({
+			code: 1008,
+			reason: err.msgpackExtensionType ? err.message : 'Invalid MessagePack',
+			message: `received invalid MessagePack (${err.message})`,
+		});
+	}
+	if (streams.size) {
+		throw createError({
+			code: 1008,
+			reason: 'Stream nesting not allowed',
+			message: 'received forbidden stream nesting',
+		});
+	}
+	return result;
+};
+
 function createError({ code, reason, message }) {
 	const err = new Error(message);
 	err.code = code;
