@@ -27,6 +27,7 @@ module.exports = (methods, logger) => {
 
 	return (socket) => {
 		const socketId = getSocketId();
+		// TODO: maybe make heartbeat into a class, and remove this abortController
 		const abortController = new AbortController();
 		const onActivity = createHeartbeat(onHeartbeat, abortController.signal);
 		const encoder = new Encoder();
@@ -44,28 +45,33 @@ module.exports = (methods, logger) => {
 			}
 		}
 
-		function invokeMethod(method, methodName, param, context, callback) {
+		function invokeMethod(ctx, methodName, param, streams, cb) {
 			logger('Socket[%s] method "%s" invoked', socketId, methodName);
-			new Promise(resolve => resolve(method(param, context)))
-				.then((returned) => {
+			receiveStreams(streams);
+			const method = methods.get(methodName) || methodNotFound;
+			new Promise(resolve => resolve(method(param, ctx)))
+				.then((result) => {
 					logger('Socket[%s] method "%s" succeeded', socketId, methodName);
-					if (!context.isNotification && !context.isAborted) {
+					if (!ctx.isNotification && !ctx.isAborted) {
 						// TODO: encode() could return streams
-						socket.send(encoder.encode([M.RESPONSE_SUCCESS, context.requestId, returned]));
+						socket.send(encoder.encode([M.RESPONSE_SUCCESS, ctx.requestId, result]));
 					}
 				}, (err) => {
 					logger('Socket[%s] method "%s" failed: %s', socketId, methodName, err);
-					if (!context.isNotification && !context.isAborted) {
+					if (!ctx.isNotification && !ctx.isAborted) {
 						err = err instanceof Error && err.expose ? err : new Error(err.message);
 						// TODO: encode() could return streams
-						socket.send(encoder.encode([M.RESPONSE_FAILURE, context.requestId, err]));
+						socket.send(encoder.encode([M.RESPONSE_FAILURE, ctx.requestId, err]));
 					}
 				})
 				.catch((err) => {
 					logger('Socket[%s] error: %s', socketId, err);
 					socket.close(1011, 'Server error');
 				})
-				.finally(callback);
+				.finally(() => {
+					discardStreams(streams);
+					cb();
+				});
 		}
 
 		function receiveStreams(streams) {
@@ -87,30 +93,26 @@ module.exports = (methods, logger) => {
 			}
 		}
 
-		function discardStreams(streams) {
+		function discardStreams(streams, forceCancel = false) {
 			for (const [streamId, stream] of streams) {
 				if (!Stream.isLocked(stream)) {
 					Stream.cancel(stream);
-					receivedStreams.delete(streamId);
-					// TODO: technically we should only send this if the streamId was in
-					//   receivedStreams, but it won't be there for cases where we are
-					//   ignoring the message, so we are currently sending it unconditionally
-					socket.send(encoder.encodeInert([M.STREAM_CANCELLATION, streamId]));
+					if (receivedStreams.delete(streamId) || forceCancel) {
+						socket.send(encoder.encodeInert([M.STREAM_CANCELLATION, streamId]));
+					}
 				}
 			}
 		}
 
 		socket
-			.on('error', (err) => {
-				logger('Socket[%s] error: %s', socketId, err);
-			})
 			.on('close', () => {
+				// TODO: clean this up
 				logger('Socket[%s] closed', socketId);
 				abortController.abort();
 				for (const abortController of requests.values()) {
 					abortController.abort();
 				}
-				for (const abortController of notifications) {
+				for (const abortController of notifications.values()) {
 					abortController.abort();
 				}
 				for (const receiver of receivedStreams.values()) {
@@ -119,6 +121,9 @@ module.exports = (methods, logger) => {
 				requests.clear();
 				notifications.clear();
 				receivedStreams.clear();
+			})
+			.on('error', (err) => {
+				logger('Socket[%s] error: %s', socketId, err);
 			})
 			.on('ping', () => {
 				onActivity();
@@ -132,7 +137,7 @@ module.exports = (methods, logger) => {
 				let msgType, msg, streams;
 				try {
 					[msgType, msg, streams] = parseMessage(
-						rawMsg, encoder, messageHandlers, receivedStreams, requests
+						rawMsg, encoder, handlers, receivedStreams, requests
 					);
 				} catch (err) {
 					logger('Socket[%s] %s', socketId, err.message);
@@ -140,85 +145,72 @@ module.exports = (methods, logger) => {
 					return;
 				}
 
-				const handler = messageHandlers.get(msgType);
+				const handler = handlers.get(msgType);
 				if (handler) {
 					handler(msg, streams);
 				} else {
 					logger('Socket[%s] received unknown Scratch-RPC message', socketId);
-					discardStreams(streams);
+					discardStreams(streams, true);
 				}
 			});
 
-		const messageHandlers = new Map([
-			[M.REQUEST, ([, requestId, methodName, param], streams) => {
-				const method = methods.get(methodName);
-				if (typeof method === 'function') {
-					const abortController = new AbortController();
-					const context = new MethodContext(abortController.signal, requestId);
-					receiveStreams(streams);
-					requests.set(requestId, abortController);
-					invokeMethod(method, methodName, param, context, () => {
-						requests.delete(requestId);
-						discardStreams(streams);
-					});
-				} else {
-					logger('Socket[%s] method "%s" not found', socketId, methodName);
-					// TODO: allow customization of this error
-					// TODO: encode() could return streams
-					socket.send(encoder.encode([M.RESPONSE_FAILURE, requestId, new Error('Method not found')]));
-					discardStreams(streams);
-				}
-			}],
-			[M.NOTIFICATION, ([, methodName, param], streams) => {
-				const method = methods.get(methodName);
-				if (typeof method === 'function') {
-					const abortController = new AbortController();
-					const context = new MethodContext(abortController.signal, null);
-					receiveStreams(streams);
-					notifications.add(abortController);
-					invokeMethod(method, methodName, param, context, () => {
-						notifications.delete(abortController);
-						discardStreams(streams);
-					});
-				} else {
-					logger('Socket[%s] method "%s" not found', socketId, methodName);
-					discardStreams(streams);
-				}
-			}],
-			[M.CANCELLATION, ([, requestId]) => {
+		const handlers = {
+			[M.REQUEST]([requestId, methodName, param], streams) {
+				const abortController = new AbortController();
+				const ctx = new MethodContext(abortController.signal, requestId);
+				requests.set(requestId, abortController);
+				invokeMethod(ctx, methodName, param, streams, () => {
+					requests.delete(requestId);
+				});
+			},
+			[M.NOTIFICATION]([methodName, param], streams) {
+				const abortController = new AbortController();
+				const ctx = new MethodContext(abortController.signal, null);
+				notifications.add(abortController);
+				invokeMethod(ctx, methodName, param, streams, () => {
+					notifications.delete(abortController);
+				});
+			},
+			[M.CANCELLATION]([requestId]) {
 				const abortController = requests.get(requestId);
 				if (abortController) {
+					requests.delete(requestId);
 					abortController.abort();
 				}
-			}],
-			[M.STREAM_CHUNK_DATA, ([, streamId, data]) => {
+			},
+			[M.STREAM_CHUNK_DATA]([streamId, data]) {
 				const receiver = receivedStreams.get(streamId);
 				if (receiver) {
 					receiver.write(data);
 				}
-			}],
-			[M.STREAM_CHUNK_END, ([, streamId]) => {
+			},
+			[M.STREAM_CHUNK_END]([streamId]) {
 				const receiver = receivedStreams.get(streamId);
 				if (receiver) {
 					receivedStreams.delete(streamId);
 					receiver.end();
 				}
-			}],
-			[M.STREAM_CHUNK_ERROR, ([, streamId, err]) => {
+			},
+			[M.STREAM_CHUNK_ERROR]([streamId, err]) {
 				const receiver = receivedStreams.get(streamId);
 				if (receiver) {
 					receivedStreams.delete(streamId);
 					receiver.error(err);
 				}
-			}],
-			[M.STREAM_CANCELLATION, ([, streamId]) => {
+			},
+			[M.STREAM_CANCELLATION]([streamId]) {
 				// TODO: if recognized then cancel, else ignore
-			}],
-			[M.STREAM_SIGNAL, ([, streamId, receivedKiB, availableKiB]) => {
+			},
+			[M.STREAM_SIGNAL]([streamId, receivedKiB, availableKiB]) {
 				// TODO: if recognized then calculate pause/resume, else ignore
-			}],
-		]);
+			},
+		};
 
 		logger('Socket[%s] opened', socketId);
 	};
 };
+
+// TODO: allow customization of this error
+function methodNotFound() {
+	throw new Error('Method not found');
+}

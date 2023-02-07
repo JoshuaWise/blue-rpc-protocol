@@ -65,7 +65,7 @@ module.exports = (rawMsg, encoder, allowedMessageTypes, streamIds, requestIds) =
 		}
 	}
 
-	return [msgType, msg, streams];
+	return [msgType, msg.slice(1), streams];
 };
 
 function createError({ code, reason, message }) {
