@@ -1,25 +1,18 @@
 'use strict';
 const WebSocket = require('ws');
 const MethodContext = require('./method-context');
+const StreamReceiver = require('./stream-receiver');
 const createIncrementor = require('./create-incrementor');
 const createHeartbeat = require('./create-heartbeat');
 const validate = require('./validate');
 const Encoder = require('./encoder');
+const Stream = require('./stream');
 
 // TODO: after encoding a stream to send
 //   on data/end/error, send Stream Chunk
 //   upon receiving Stream Cancel, destroy the stream
 //   DO NOT store this in the set of "open Stream IDs"
-
-// TODO: after decoding a stream that was received
-//   add to set of "open Stream IDs" (map id to new Stream instance)
-//   upon receiving Stream Chunk, write/end/error the stream
-//   if Stream is destroyed/cancelled, send Stream Cancel
-//   wrap it in an Object Steam, if applicable
-
-// TODO: pass abortSignal for destroying streams
-// TODO: for buffering purposes, all Streams are internally binary streams
-//   but Object Streams are eventually exposed to the user as object streams.
+// TODO: destroy/abort sent streams when connection closes
 
 // TODO: limit octet stream chunks to be 256 KiB in size, at most
 // TODO: maybe buffer/group octet stream chunks to be at least 64 KiB, if waiting anyways
@@ -28,8 +21,7 @@ const Encoder = require('./encoder');
 // TODO: note that msgpack decode AND encode can both throw
 // TODO: make sure we are not allowing ourselves to encode streams in streams
 
-// TODO: what to do if we receive duplicate Stream IDs or Request IDs?
-//   this handling is not currently in the spec
+// TODO: handling of duplicate Stream IDs or Request IDs is not currently in the spec
 
 module.exports = (methods, logger) => {
 	const getSocketId = createIncrementor();
@@ -41,6 +33,7 @@ module.exports = (methods, logger) => {
 		const encoder = new Encoder();
 		const requests = new Map();
 		const notifications = new Set();
+		const receivedStreams = new Map();
 
 		function onHeartbeat(isAlive) {
 			if (isAlive) {
@@ -52,24 +45,20 @@ module.exports = (methods, logger) => {
 			}
 		}
 
-		function sendStreamCancellations(streams) {
-			for (const streamId of streams.keys()) {
-				socket.send(encoder.encode([8, streamId]));
-			}
-		}
-
 		function invokeMethod(method, methodName, param, context, callback) {
 			logger('Socket[%s] method "%s" invoked', socketId, methodName);
 			new Promise(resolve => resolve(method(param, context)))
 				.then((returned) => {
 					logger('Socket[%s] method "%s" succeeded', socketId, methodName);
 					if (!context.isNotification && !context.isAborted) {
+						// TODO: encode() could return streams
 						socket.send(encoder.encode([2, context.requestId, returned]));
 					}
 				}, (err) => {
 					logger('Socket[%s] method "%s" failed: %s', socketId, methodName, err);
 					if (!context.isNotification && !context.isAborted) {
 						err = err instanceof Error && err.expose ? err : new Error(err.message);
+						// TODO: encode() could return streams
 						socket.send(encoder.encode([3, context.requestId, err]));
 					}
 				})
@@ -78,6 +67,35 @@ module.exports = (methods, logger) => {
 					socket.close(1011, 'Server error');
 				})
 				.finally(callback);
+		}
+
+		function receiveStreams(streams) {
+			for (const [streamId, stream] of streams) {
+				const receiver = new StreamReceiver(stream, encoder);
+				receivedStreams.set(streamId, receiver);
+				receiver.onCancellation = () => {
+					if (receivedStreams.delete(streamId)) {
+						socket.send(encoder.encodeWithoutStreams([8, streamId]));
+					}
+				};
+				receiver.onSignal = (received, available) => {
+					if (receivedStreams.has(streamId)) {
+						received = Math.floor(received / 1024);
+						available = Math.floor(available / 1024);
+						socket.send(encoder.encodeWithoutStreams([9, streamId, received, available]));
+					}
+				};
+			}
+		}
+
+		function discardStreams(streams) {
+			for (const [streamId, stream] of streams) {
+				if (!Stream.isLocked(stream)) {
+					Stream.cancel(stream);
+					receivedStreams.delete(streamId);
+					socket.send(encoder.encodeWithoutStreams([8, streamId]));
+				}
+			}
 		}
 
 		socket
@@ -93,8 +111,12 @@ module.exports = (methods, logger) => {
 				for (const abortController of notifications) {
 					abortController.abort();
 				}
+				for (const receiver of receivedStreams.values()) {
+					receiver.error(abortController.signal.reason);
+				}
 				requests.clear();
 				notifications.clear();
+				receivedStreams.clear();
 			})
 			.on('ping', () => {
 				onActivity();
@@ -131,7 +153,7 @@ module.exports = (methods, logger) => {
 				const config = messageHandlers.get(msg[0]);
 				if (!config) {
 					logger('Socket[%s] received unknown Scratch-RPC message', socketId);
-					sendStreamCancellations(streams);
+					discardStreams(streams);
 					return;
 				}
 
@@ -141,7 +163,7 @@ module.exports = (methods, logger) => {
 					return;
 				}
 
-				if (config.noNestedStreams && streams.size) {
+				if (msg[0] === 7 && streams.size) {
 					logger('Socket[%s] received forbidden stream nesting', socketId);
 					socket.close(1008, 'Stream nesting not allowed');
 					return;
@@ -151,6 +173,14 @@ module.exports = (methods, logger) => {
 					logger('Socket[%s] received duplicate request ID', socketId);
 					socket.close(1008, 'Illegal duplicate ID');
 					return;
+				}
+
+				for (const streamId of streams.keys()) {
+					if (receivedStreams.has(streamId)) {
+						logger('Socket[%s] received duplicate stream ID', socketId);
+						socket.close(1008, 'Illegal duplicate ID');
+						return;
+					}
 				}
 
 				handler(msg, streams);
@@ -164,15 +194,18 @@ module.exports = (methods, logger) => {
 					if (typeof method === 'function') {
 						const abortController = new AbortController();
 						const context = new MethodContext(abortController.signal, requestId);
+						receiveStreams(streams);
 						requests.set(requestId, abortController);
 						invokeMethod(method, methodName, param, context, () => {
 							requests.delete(requestId);
+							discardStreams(streams);
 						});
 					} else {
 						logger('Socket[%s] method "%s" not found', socketId, methodName);
 						// TODO: allow customization of this error
+						// TODO: encode() could return streams
 						socket.send(encoder.encode([3, requestId, new Error('Method not found')]));
-						sendStreamCancellations(streams);
+						discardStreams(streams);
 					}
 				},
 			}],
@@ -183,13 +216,15 @@ module.exports = (methods, logger) => {
 					if (typeof method === 'function') {
 						const abortController = new AbortController();
 						const context = new MethodContext(abortController.signal, null);
+						receiveStreams(streams);
 						notifications.add(abortController);
 						invokeMethod(method, methodName, param, context, () => {
 							notifications.delete(abortController);
+							discardStreams(streams);
 						});
 					} else {
 						logger('Socket[%s] method "%s" not found', socketId, methodName);
-						sendStreamCancellations(streams);
+						discardStreams(streams);
 					}
 				},
 			}],
@@ -210,33 +245,42 @@ module.exports = (methods, logger) => {
 			}],
 			[5, {
 				validate: validate.StreamChunkData,
-				noNestedStreams: true,
-				handler: (msg) => {
-					// TODO: if recognized then handle, else ignore
+				handler: ([, streamId, data]) => {
+					const receiver = receivedStreams.get(streamId);
+					if (receiver) {
+						receiver.write(data);
+					}
 				},
 			}],
 			[6, {
 				validate: validate.StreamChunkEnd,
-				handler: (msg) => {
-					// TODO: if recognized then handle, else ignore
+				handler: ([, streamId]) => {
+					const receiver = receivedStreams.get(streamId);
+					if (receiver) {
+						receivedStreams.delete(streamId);
+						receiver.end();
+					}
 				},
 			}],
 			[7, {
 				validate: validate.StreamChunkError,
-				noNestedStreams: true,
-				handler: (msg) => {
-					// TODO: if recognized then handle, else ignore
+				handler: ([, streamId, err]) => {
+					const receiver = receivedStreams.get(streamId);
+					if (receiver) {
+						receivedStreams.delete(streamId);
+						receiver.error(err);
+					}
 				},
 			}],
 			[8, {
 				validate: validate.StreamCancellation,
-				handler: () => {
+				handler: ([, streamId]) => {
 					// TODO: if recognized then cancel, else ignore
 				},
 			}],
 			[9, {
 				validate: validate.StreamSignal,
-				handler: () => {
+				handler: ([, streamId, receivedKiB, availableKiB]) => {
 					// TODO: if recognized then calculate pause/resume, else ignore
 				},
 			}],

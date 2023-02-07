@@ -45,14 +45,13 @@ module.exports = class Encoder {
 			if (buffer === undefined) {
 				buffer = new Uint8Array(8);
 				const streamId = getStreamId();
-				const isOctetStream = Stream.isOctetStream(stream);
 				buffer[0] = streamId >>> 24;
 				buffer[1] = streamId >>> 16;
 				buffer[2] = streamId >>> 8;
 				buffer[3] = streamId;
-				buffer[4] = isOctetStream ? 1 : 0;
+				buffer[4] = Stream.isOctetStream(stream) ? 1 : 0;
 				this._encodingCache.set(stream, buffer);
-				this._streamsById.set(streamId, { stream, isOctetStream });
+				this._streamsById.set(streamId, stream);
 			}
 			return buffer;
 		};
@@ -66,13 +65,12 @@ module.exports = class Encoder {
 				| (buffer[1] << 16)
 				| (buffer[2] << 8)
 				| buffer[3];
-			let entry = this._streamsById.get(streamId);
-			if (entry === undefined) {
-				const stream = Stream.new(true);
-				const isOctetStream = buffer[4] & 1 ? true : false;
-				this._streamsById.set(streamId, entry = { stream, isOctetStream });
+			let stream = this._streamsById.get(streamId);
+			if (stream === undefined) {
+				stream = Stream.new(buffer[4] & 1 ? true : false);
+				this._streamsById.set(streamId, stream);
 			}
-			return entry.stream;
+			return stream;
 		};
 
 		this._codecWithStreams.register(0, Stream.Class, encodeStream, decodeStream);
