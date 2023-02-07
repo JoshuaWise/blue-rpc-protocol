@@ -17,12 +17,12 @@ exports.listen = async (options) => {
 	const httpServer = options.server;
 	const wsServer = new WebSocketServer({
 		server: httpServer,
-		maxPayload: options.maxBufferedPayload,
+		maxPayload: options.maxPayload,
 		perMessageDeflate: options.perMessageDeflate,
 		verifyClient: options.verifyClient,
 	});
 
-	wsServer.on('connection', createServerHandler(options.methods, options.maxPayload, logger));
+	wsServer.on('connection', createServerHandler(options.methods, logger));
 
 	// Wait for the server to be online.
 	await new Promise((resolve, reject) => {
@@ -64,11 +64,11 @@ exports.connect = async (url, options) => {
 		throw new TypeError('Expected "url" argument to be non-empty');
 	}
 
-	const { perMessageDeflate, httpOpts } = normalizeClientOptions(options);
+	options = normalizeClientOptions(options);
 	const socket = new WebSocket(url, [], {
-		maxPayload: 0x7fffffff, // Maximum allowed by WebSocket, except Infinity
-		perMessageDeflate,
-		...httpOpts,
+		maxPayload: options.maxPayload,
+		perMessageDeflate: options.perMessageDeflate,
+		...options.httpOpts,
 	});
 
 	// Wait for the WebSocket to be connected.

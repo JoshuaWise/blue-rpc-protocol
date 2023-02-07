@@ -21,9 +21,8 @@
 - `options` [<Object>][Object]
 	- `server` [<http.Server>][HTTPServer] an HTTP or HTTPS server instance to attach to.
 	- `methods` [<Object>][Object] A map of RPC-style methods to serve.
-	- `maxPayload` [<number>][number] The maximum accepted size of incoming RPC requests (in bytes). **Default:** `1073741824` (1 GiB).
-	- `maxBufferedPayload` [<number>][number] The maximum accepted size of incoming RPC requests (in bytes), but not including the size of [Streams][ReadableStream]. **Default:** `1048576` (1 MiB).
-	- `perMessageDeflate` [<Object>][Object] | [<boolean>][boolean] Passed to the underling [WebSocketServer][WebSocketServer] to configure automatic [message compression](https://www.rfc-editor.org/rfc/rfc7692#section-7). **Default:** Enabled for messages at least `65536` bytes (64 KiB) in size.
+	- `maxPayload` [<number>][number] The maximum accepted size of incoming WebSocket messages (in bytes). **Default:** `1048576` (1 MiB).
+	- `perMessageDeflate` [<Object>][Object] | [<boolean>][boolean] Passed to the underling [WebSocketServer][WebSocketServer] to configure automatic [message compression](https://www.rfc-editor.org/rfc/rfc7692#section-7). **Default:** Enabled for messages at least `8192` bytes (8 KiB) in size.
 	- `verifyClient` [<Function>][Function] Passed to the underling [WebSocketServer][WebSocketServer] to conditionally accept or reject incoming connections. **Default**: `null`.
 	- `logger` [<Function>][Function] If provided, auto-generated server logs will be passed to this function, for convenience. **Default**: `null`.
 	- Any option allowed in [`server.listen()`](https://nodejs.org/api/net.html#serverlistenoptions-callback).
@@ -37,9 +36,9 @@ The returned promise will not resolve until the server is ready to accept connec
 
 ##### Configuring `perMessageDeflate`
 
-Although compression can greatly reduce bandwidth usage, it also has significant CPU and memory costs. Usually these costs don't become a bottleneck unless you are processing thousands of messages per second (on a typical workstation in 2023). Usually, if you are processing that many messages per second, each message is so small that bandwidth is not even an issue. This is the rationale that led to the current default setting, which only compresses messages at least 64 KiB in size. It is a compromise that tries to minimize CPU and memory costs while still using compression in cases where you are likely to benefit from it.
+Although compression can greatly reduce bandwidth usage, it also has significant CPU and memory costs. Usually these costs don't become a bottleneck unless you are processing thousands of messages per second (on a typical workstation in 2023). Usually, if you are processing that many messages per second, each message is so small that bandwidth is not even an issue. This is the rationale that led to the current default setting, which only compresses messages at least 8 KiB in size. It is a compromise that tries to minimize CPU and memory costs while still using compression in cases where you are likely to benefit from it.
 
-However, if you are sending a large number of *small* messages (below 64 KiB) and you want to hyper-optimize for low bandwidth usage (at the cost of higher CPU and memory consumpton), you can use the following `perMessageDeflate` settings:
+However, if you are sending a large number of *small* messages (below 8 KiB) and you want to hyper-optimize for low bandwidth usage (at the cost of higher CPU and memory consumpton), you can use the following `perMessageDeflate` settings:
 
 ```js
 const perMessageDeflate = {
@@ -53,7 +52,8 @@ const perMessageDeflate = {
 
 - `url` [<string>][string] The URL of the Scratch-RPC server to connect to.
 - `options` [<Object>][Object]
-	- `perMessageDeflate` [<Object>][Object] | [<boolean>][boolean] Passed to the underling [WebSocket][WebSocket] to configure automatic [message compression](https://www.rfc-editor.org/rfc/rfc7692#section-7). **Default:** Enabled for messages at least `65536` bytes (64 KiB) in size.
+	- `maxPayload` [<number>][number] The maximum accepted size of incoming WebSocket messages (in bytes). **Default:** `1048576` (1 MiB).
+	- `perMessageDeflate` [<Object>][Object] | [<boolean>][boolean] Passed to the underling [WebSocket][WebSocket] to configure automatic [message compression](https://www.rfc-editor.org/rfc/rfc7692#section-7). **Default:** Enabled for messages at least `8192` bytes (8 KiB) in size.
 	- Any option allowed in [`http.request()`](https://nodejs.org/api/http.html#httprequesturl-options-callback) or [`https.request()`](https://nodejs.org/api/https.html#httpsrequesturl-options-callback).
 - Returns: [<Promise][Promise][<ScratchClient>][ScratchClient][>][Promise]
 

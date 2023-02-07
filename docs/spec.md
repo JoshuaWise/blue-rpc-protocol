@@ -29,7 +29,7 @@ A Request is serialized as an Array with these four elements:
 - The third element is a String whose value is the name of the requested method.
 - The fourth element is any value within the Scratch-RPC type system, representing the "parameter" being passed to the method call.
 
-Each Request is coupled with a Request ID. The Request ID is an Integer containing an unsigned 32-bit value. Request IDs MUST be unique among all Requests sent by the same Client through the same WebSocket connection, throughout the entire lifespan of the WebSocket connection.
+Each Request is coupled with a Request ID. Request IDs MUST be unique among all Requests sent by the same Client through the same WebSocket connection, throughout the entire lifespan of the WebSocket connection.
 
 When a Client sends a Request, they MUST store its Request ID within a set of "open Request IDs". This set MUST NOT be shared across the Client's WebSocket connections, if more than one connection exists.
 
@@ -146,7 +146,11 @@ Attempting to cancel a Stream more than once, or attempting to cancel a Stream a
 
 After a Peer receives a Stream Cancellation, it SHOULD NOT ever send any more Stream Chunks with the same Stream ID across the same WebSocket connection. If a Peer receives a Stream Cancellation containing a Stream ID that it does not recognize, it MUST ignore it.
 
-Whenever a Peer receives a WebSocket message that it ignores (for example, receiving a Response whose Request ID is not within the set of "open Request IDs"), there is a possibility that the ignored message contains one or more Streams. In such cases, the Peer MUST immediately send a Stream Cancellation for each of the received Streams.
+When a Peer receives a WebSocket message that it must ignore, there is a possibility that the ignored message contains one or more Streams. In such cases, the Peer MUST immediately send a Stream Cancellation for each of the received Streams. This may occur in the following situations:
+
+- Client receives a Response whose Request ID is not within the set of "open Request IDs" (see section 4).
+- Server receives a Request for a method that is not implemented (see section 4).
+- Peer receives a message that is an Array whose first element is an Integer not defined by this specification (see section 8.4).
 
 ### 6.3 Stream Signal message
 
@@ -179,20 +183,17 @@ A Scratch-RPC connection inherits the same lifecycle as the underlying WebSocket
 
 All messages sent across the WebSocket connection MUST be sent in binary frames. If a Peer receives a text frame, it SHOULD close the WebSocket connection with a status code of "1003".
 
-### 8.1 WebSocket compresion
+### 8.1 WebSocket compression
 
 It is RECOMMENDED for Scratch-RPC Server and Client implementations to support the [permessage-deflate][4] WebSocket extension. It is RECOMMENDED that this extension is enabled by default, with default extension parameters that are appropriate for the implementation's use-cases.
 
 ### 8.2 WebSocket payload limits
 
-Implementations SHOULD configure two variables for controlling payload limits on the Scratch-RPC connection (whether or not these variables are configurable by the user is OPTIONAL):
+Implementations MAY enforce a limit on the size of individual WebSocket messages that they receive, to limit memory consumption. However, implementations MUST support receiving WebSocket messages at least 256 KiB in size.
 
-- MAX_PAYLOAD (RECOMMENDED default is 1 GiB)
-- MAX_BUFFERED_PAYLOAD (RECOMMENDED default is 1 MiB)
+When sending Stream Chunks associated with an Octet Stream, Peers SHOULD limit the size of each Stream Chunk to be less than or equal to 256 KiB.
 
-MAX_PAYLOAD defines the maximum size of a Request or Response, including associated Stream Chunks. MAX_BUFFERED_PAYLOAD defines the maximum size of any individual WebSocket message (i.e., an individual Stream Chunk, or a Request or Response, *excluding* associated Stream Chunks).
-
-If a Peer receives a message that violates one of these limits, it SHOULD close the WebSocket connection with a status code of "1009".
+If a Peer receives a message whose size exceeds their supported limit, they SHOULD close the WebSocket connection with a status code of "1009".
 
 ### 8.3 WebSocket timeouts and heartbeats
 

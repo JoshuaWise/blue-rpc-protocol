@@ -3,10 +3,10 @@ const WebSocket = require('ws');
 const MethodContext = require('./method-context');
 const createIncrementor = require('./create-incrementor');
 const createHeartbeat = require('./create-heartbeat');
+const validate = require('./validate');
 const Encoder = require('./encoder');
 
 // TODO: rewrite
-// TODO: implement maxPayload
 // TODO: MethodContext is now call-specific
 // TODO: implement method cancellation (also using abortController.signal)
 // TODO: note that msgpack decode AND encode can both throw
@@ -17,9 +17,12 @@ const Encoder = require('./encoder');
 //   upon receiving Stream Cancel, destroy the stream
 //   DO NOT store this in the set of "open Stream IDs"
 
+// TODO: limit octet stream chunks to be 256 KiB in size, at most
+// TODO: maybe buffer/group octet stream chunks to be at least 64 KiB, if waiting anyways
+// TODO: when sending a stream, pause/resume based on ws.bufferedAmount (not just Stream Signals)
 
 
-module.exports = (methods, maxPayload, logger) => {
+module.exports = (methods, logger) => {
 	const getSocketId = createIncrementor();
 
 	return (socket) => {
@@ -92,22 +95,33 @@ module.exports = (methods, maxPayload, logger) => {
 					return;
 				}
 
-				// TODO: what to do if a stream is received in an ignored...
-				//   Response? (due to earlier cancellation): must send Stream Cancellations
-				//   unrecognized message type? (due to some future spec version)
+				if (!validate.AnyMessage(msg)) {
+					logger('Socket[%s] received invalid Scratch-RPC message', socketId);
+					socket.close(1008, 'Invalid message');
+					return;
+				}
 
+				const config = messageHandlers.get(msg[0]);
+				if (!config) {
+					logger('Socket[%s] received unknown Scratch-RPC message', socketId);
+					// TODO: send a Stream Cancellation for each received Stream
+					return;
+				}
 
-				// message is not an array, or first element not an integer: 1008
-				// unrecognized message type:
-				//   if (10 or negative) then 1008
-				//   else ignore, and send a Stream Cancellation for each received Stream
-				// message wrong length or wrong typed elements: 1008
+				if (!config.validate(msg)) {
+					logger('Socket[%s] received improper Scratch-RPC message', socketId);
+					socket.close(1008, 'Improper message');
+					return;
+				}
 
-				// violated maxPayload: 1009
-				//   calculate from rawMsg buffer sizes of:
-				//     Request (0, 1)
-				//     Response (2, 3)
-				//     Stream Chunk (5, 6, 7)
+				if (config.noNestedStreams && streams.size) {
+					logger('Socket[%s] received forbidden stream nesting', socketId);
+					socket.close(1008, 'Stream nesting not allowed');
+					return;
+				}
+
+				handler(msg, streams);
+
 
 				// TODO: what to do if we receive duplicate Stream IDs or Request IDs?
 				//   this handling is not currently in the spec
@@ -117,23 +131,6 @@ module.exports = (methods, maxPayload, logger) => {
 				//   upon receiving Stream Chunk, write/end/error the stream
 				//   if Stream is destroyed/cancelled, send Stream Cancel
 				//   wrap it in an Object Steam, if applicable
-
-
-
-
-
-				// received Request:
-				//   handle as normal or as notification
-				//   if method not defined then respond with Error
-				// received Response: 1008
-				// received Cancellation: if recognized then cancel, else ignore
-
-				// received Stream Chunk:
-				//   if recognized then handle, else ignore
-				//   if has Stream Data which contains any (possibly nested) Stream, then 1008
-				//   if has Error which contains any (possibly nested) Stream, then 1008
-				// received Stream Cancellation: if recognized then cancel, else ignore
-				// received Stream Signal: if recognized then calculate pause/resume, else ignore
 
 				// TODO: for buffering purposes, all Streams are internally binary streams
 				//   but Object Streams are eventually exposed to the user as object streams.
@@ -151,6 +148,67 @@ module.exports = (methods, maxPayload, logger) => {
 					onInvoke(methods.get(msg.method), msg.params, msg.id);
 				}
 			});
+
+		const messageHandlers = new Map([
+			[0, {
+				validate: validate.Request,
+				handler: (msg, streams) => {
+					// TODO: if method exists then handle
+					//   else respond with Error and send Stream Cancellation for each stream
+				},
+			}],
+			[1, {
+				validate: validate.Notification,
+				handler: (msg, streams) => {
+					// TODO: if method exists then handle as notification
+					//   else ignore and send Stream Cancellation for each stream
+				},
+			}],
+			[2, {
+				validate: () => false,
+			}],
+			[3, {
+				validate: () => false,
+			}],
+			[4, {
+				validate: validate.Cancellation,
+				handler: () => {
+					// TODO: if recognized then cancel, else ignore
+				},
+			}],
+			[5, {
+				validate: validate.StreamChunkData,
+				noNestedStreams: true,
+				handler: (msg) => {
+					// TODO: if recognized then handle, else ignore
+				},
+			}],
+			[6, {
+				validate: validate.StreamChunkEnd,
+				handler: (msg) => {
+					// TODO: if recognized then handle, else ignore
+				},
+			}],
+			[7, {
+				validate: validate.StreamChunkError,
+				noNestedStreams: true,
+				handler: (msg) => {
+					// TODO: if recognized then handle, else ignore
+				},
+			}],
+			[8, {
+				validate: validate.StreamCancellation,
+				handler: () => {
+					// TODO: if recognized then cancel, else ignore
+				},
+			}],
+			[9, {
+				validate: validate.StreamSignal,
+				handler: () => {
+					// TODO: if recognized then calculate pause/resume, else ignore
+				},
+			}],
+		]);
 
 		logger('Socket[%s] opened', socketId);
 	};

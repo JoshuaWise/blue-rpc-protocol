@@ -3,14 +3,13 @@ const util = require('util');
 const http = require('http');
 const https = require('https');
 
-const MAX_PAYLOAD = 1024 * 1024 * 1024;
-const MAX_BUFFERED_PAYLOAD = 1024 * 1024;
+const MAX_PAYLOAD = 1024 * 1024;
 const SERVER_COMPRESSION = {
 	serverNoContextTakeover: true,
 	clientNoContextTakeover: false,
 	serverMaxWindowBits: 15,
 	clientMaxWindowBits: 15,
-	threshold: 1024 * 64,
+	threshold: 1024 * 8,
 	concurrencyLimit: 5,
 };
 
@@ -20,7 +19,6 @@ module.exports = ({ ...options } = {}) => {
 		server,
 		methods,
 		maxPayload,
-		maxBufferedPayload,
 		perMessageDeflate,
 		verifyClient,
 		logger,
@@ -40,19 +38,11 @@ module.exports = ({ ...options } = {}) => {
 		if (Number.isNaN(maxPayload) || maxPayload < 0) {
 			throw new RangeError('Expected "maxPayload" option to be a positive number');
 		}
-		if (maxPayload !== Infinity && maxPayload > Number.MAX_SAFE_INTEGER) {
-			throw new RangeError('Expected "maxPayload" option to be no greater than MAX_SAFE_INTEGER');
+		if (maxPayload !== Infinity && maxPayload > 0x7fffffff) {
+			throw new RangeError('Expected "maxPayload" option to be no greater than 2147483647');
 		}
-	}
-	if (maxBufferedPayload != null) {
-		if (typeof maxBufferedPayload !== 'number') {
-			throw new TypeError('Expected "maxBufferedPayload" option to be a number');
-		}
-		if (Number.isNaN(maxBufferedPayload) || maxBufferedPayload < 0) {
-			throw new RangeError('Expected "maxBufferedPayload" option to be a positive number');
-		}
-		if (maxBufferedPayload !== Infinity && maxBufferedPayload > 0x7fffffff) {
-			throw new RangeError('Expected "maxBufferedPayload" option to be no greater than 2147483647');
+		if (maxPayload !== 0 && maxPayload < 0x40000) {
+			throw new RangeError('Expected "maxPayload" option to be no less than 262144');
 		}
 	}
 	if (perMessageDeflate !== undefined && typeof perMessageDeflate !== 'object' && typeof perMessageDeflate !== 'boolean' || Array.isArray(perMessageDeflate)) {
@@ -71,8 +61,7 @@ module.exports = ({ ...options } = {}) => {
 	return {
 		server,
 		methods: new Map(Object.entries(methods || {})),
-		maxPayload: maxPayload === undefined ? MAX_PAYLOAD : Math.floor(maxPayload) || Infinity,
-		maxBufferedPayload: maxBufferedPayload === undefined ? MAX_BUFFERED_PAYLOAD : maxBufferedPayload | 0,
+		maxPayload: maxPayload === undefined ? MAX_PAYLOAD : maxPayload | 0,
 		perMessageDeflate: perMessageDeflate === undefined ? SERVER_COMPRESSION : perMessageDeflate || false,
 		verifyClient: verifyClient || null,
 		logger: logger ? createLogger(logger) : () => {},

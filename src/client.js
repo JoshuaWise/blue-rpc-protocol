@@ -25,6 +25,11 @@ const incrementor = Symbol('incrementor');
 //   always expose websocket code/reason on Error object, if there is one
 // TODO: add AbortSignal support
 // TODO: remove EventEmitter
+// TODO: send Stream Cancellations for received streams in ignored Responses
+// TODO: send Stream Cancellations for received streams in ignored message types
+// TODO: limit octet stream chunks to be 256 KiB in size, at most
+// TODO: maybe buffer/group octet stream chunks to be at least 64 KiB, if waiting anyways
+// TODO: when sending a stream, pause/resume based on ws.bufferedAmount (not just Stream Signals)
 module.exports = class ScratchClient extends EventEmitter {
 	constructor(sock) {
 		// TODO: make sure sock is connected
