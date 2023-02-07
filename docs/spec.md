@@ -218,8 +218,7 @@ DEFINE NoActivity:
 	IF pingCount > {HEARTBEAT_TRIES}:
 		Terminate()
 	ELSE:
-		IF WebSocket is in the "OPEN" state:
-			Send a WebSocket "ping" frame
+		Send a WebSocket "ping" frame
 		timer = StartTimer(NoActivity, {HEARTBEAT_INTERVAL})
 
 DEFINE Terminate:

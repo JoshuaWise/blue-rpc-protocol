@@ -6,21 +6,30 @@ const createHeartbeat = require('./create-heartbeat');
 const validate = require('./validate');
 const Encoder = require('./encoder');
 
-// TODO: rewrite
-// TODO: MethodContext is now call-specific
-// TODO: implement method cancellation (also using abortController.signal)
-// TODO: note that msgpack decode AND encode can both throw
-// TODO: pass abortSignal for destroying streams
-
 // TODO: after encoding a stream to send
 //   on data/end/error, send Stream Chunk
 //   upon receiving Stream Cancel, destroy the stream
 //   DO NOT store this in the set of "open Stream IDs"
 
+// TODO: after decoding a stream that was received
+//   add to set of "open Stream IDs" (map id to new Stream instance)
+//   upon receiving Stream Chunk, write/end/error the stream
+//   if Stream is destroyed/cancelled, send Stream Cancel
+//   wrap it in an Object Steam, if applicable
+
+// TODO: pass abortSignal for destroying streams
+// TODO: for buffering purposes, all Streams are internally binary streams
+//   but Object Streams are eventually exposed to the user as object streams.
+
 // TODO: limit octet stream chunks to be 256 KiB in size, at most
 // TODO: maybe buffer/group octet stream chunks to be at least 64 KiB, if waiting anyways
 // TODO: when sending a stream, pause/resume based on ws.bufferedAmount (not just Stream Signals)
 
+// TODO: note that msgpack decode AND encode can both throw
+// TODO: make sure we are not allowing ourselves to encode streams in streams
+
+// TODO: what to do if we receive duplicate Stream IDs or Request IDs?
+//   this handling is not currently in the spec
 
 module.exports = (methods, logger) => {
 	const getSocketId = createIncrementor();
@@ -30,12 +39,12 @@ module.exports = (methods, logger) => {
 		const abortController = new AbortController();
 		const onActivity = createHeartbeat(onHeartbeat, abortController.signal);
 		const encoder = new Encoder();
+		const requests = new Map();
+		const notifications = new Set();
 
 		function onHeartbeat(isAlive) {
 			if (isAlive) {
-				if (socket.readyState === WebSocket.OPEN) {
-					socket.ping();
-				}
+				socket.ping();
 			} else {
 				logger('Socket[%s] heartbeat failure', socketId);
 				socket.close(1001, 'Connection timed out');
@@ -43,23 +52,33 @@ module.exports = (methods, logger) => {
 			}
 		}
 
-		// function onInvoke(fn, params, id) {
-		// 	new Promise(resolve => resolve(fn.apply(context, params)))
-		// 		.then((returned) => {
-		// 			logger('Socket[%s] handler succeeded (%s)', socketId, id);
-		// 			if (id !== null && socket.readyState === WebSocket.OPEN) {
-		// 				const result = typeof returned !== 'object' || !returned ? {} : returned;
-		// 				socket.send(JSON.stringify({ id, result, error: null }));
-		// 			}
-		// 		}, (err) => {
-		// 			logger('Socket[%s] handler failed (%s)\n%s', socketId, id, err);
-		// 			if (id !== null && socket.readyState === WebSocket.OPEN) {
-		// 				const message = err.expose ? err.message || 'Unknown server error' : 'Unknown server error';
-		// 				const error = { code: -32000, message };
-		// 				socket.send(JSON.stringify({ id, result: null, error }));
-		// 			}
-		// 		});
-		// }
+		function sendStreamCancellations(streams) {
+			for (const streamId of streams.keys()) {
+				socket.send(encoder.encode([8, streamId]));
+			}
+		}
+
+		function invokeMethod(method, methodName, param, context, callback) {
+			logger('Socket[%s] method "%s" invoked', socketId, methodName);
+			new Promise(resolve => resolve(method(param, context)))
+				.then((returned) => {
+					logger('Socket[%s] method "%s" succeeded', socketId, methodName);
+					if (!context.isNotification && !context.isAborted) {
+						socket.send(encoder.encode([2, context.requestId, returned]));
+					}
+				}, (err) => {
+					logger('Socket[%s] method "%s" failed: %s', socketId, methodName, err);
+					if (!context.isNotification && !context.isAborted) {
+						err = err instanceof Error && err.expose ? err : new Error(err.message);
+						socket.send(encoder.encode([3, context.requestId, err]));
+					}
+				})
+				.catch((err) => {
+					logger('Socket[%s] error: %s', socketId, err);
+					socket.close(1011, 'Server error');
+				})
+				.finally(callback);
+		}
 
 		socket
 			.on('error', (err) => {
@@ -68,6 +87,14 @@ module.exports = (methods, logger) => {
 			.on('close', () => {
 				logger('Socket[%s] closed', socketId);
 				abortController.abort();
+				for (const abortController of requests.values()) {
+					abortController.abort();
+				}
+				for (const abortController of notifications) {
+					abortController.abort();
+				}
+				requests.clear();
+				notifications.clear();
 			})
 			.on('ping', () => {
 				onActivity();
@@ -104,7 +131,7 @@ module.exports = (methods, logger) => {
 				const config = messageHandlers.get(msg[0]);
 				if (!config) {
 					logger('Socket[%s] received unknown Scratch-RPC message', socketId);
-					// TODO: send a Stream Cancellation for each received Stream
+					sendStreamCancellations(streams);
 					return;
 				}
 
@@ -120,48 +147,50 @@ module.exports = (methods, logger) => {
 					return;
 				}
 
-				handler(msg, streams);
-
-
-				// TODO: what to do if we receive duplicate Stream IDs or Request IDs?
-				//   this handling is not currently in the spec
-
-				// TODO: after decoding a stream that was received
-				//   add to set of "open Stream IDs" (map id to new Stream instance)
-				//   upon receiving Stream Chunk, write/end/error the stream
-				//   if Stream is destroyed/cancelled, send Stream Cancel
-				//   wrap it in an Object Steam, if applicable
-
-				// TODO: for buffering purposes, all Streams are internally binary streams
-				//   but Object Streams are eventually exposed to the user as object streams.
-
-
-
-				// Parse the incoming request and invoke the appropriate method, if one exists.
-				// If the request is invalid, we terminate the connection.
-				const msg = parseRequest(stringOrBuffer);
-				if (msg === null || !methods.has(msg.method)) {
-					logger('Socket[%s] invalid request received', socketId);
-					socket.terminate(); // TODO: needs status code and reason
-				} else {
-					logger('Socket[%s] request received: "%s" (%s)', socketId, msg.method, msg.id);
-					onInvoke(methods.get(msg.method), msg.params, msg.id);
+				if (msg[0] === 0 && requests.has(msg[1])) {
+					logger('Socket[%s] received duplicate request ID', socketId);
+					socket.close(1008, 'Illegal duplicate ID');
+					return;
 				}
+
+				handler(msg, streams);
 			});
 
 		const messageHandlers = new Map([
 			[0, {
 				validate: validate.Request,
-				handler: (msg, streams) => {
-					// TODO: if method exists then handle
-					//   else respond with Error and send Stream Cancellation for each stream
+				handler: ([, requestId, methodName, param], streams) => {
+					const method = methods.get(methodName);
+					if (typeof method === 'function') {
+						const abortController = new AbortController();
+						const context = new MethodContext(abortController.signal, requestId);
+						requests.set(requestId, abortController);
+						invokeMethod(method, methodName, param, context, () => {
+							requests.delete(requestId);
+						});
+					} else {
+						logger('Socket[%s] method "%s" not found', socketId, methodName);
+						// TODO: allow customization of this error
+						socket.send(encoder.encode([3, requestId, new Error('Method not found')]));
+						sendStreamCancellations(streams);
+					}
 				},
 			}],
 			[1, {
 				validate: validate.Notification,
-				handler: (msg, streams) => {
-					// TODO: if method exists then handle as notification
-					//   else ignore and send Stream Cancellation for each stream
+				handler: ([, methodName, param], streams) => {
+					const method = methods.get(methodName);
+					if (typeof method === 'function') {
+						const abortController = new AbortController();
+						const context = new MethodContext(abortController.signal, null);
+						notifications.add(abortController);
+						invokeMethod(method, methodName, param, context, () => {
+							notifications.delete(abortController);
+						});
+					} else {
+						logger('Socket[%s] method "%s" not found', socketId, methodName);
+						sendStreamCancellations(streams);
+					}
 				},
 			}],
 			[2, {
@@ -172,8 +201,11 @@ module.exports = (methods, logger) => {
 			}],
 			[4, {
 				validate: validate.Cancellation,
-				handler: () => {
-					// TODO: if recognized then cancel, else ignore
+				handler: ([, requestId]) => {
+					const abortController = requests.get(requestId);
+					if (abortController) {
+						abortController.abort();
+					}
 				},
 			}],
 			[5, {

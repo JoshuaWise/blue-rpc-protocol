@@ -25,6 +25,7 @@ const incrementor = Symbol('incrementor');
 //   always expose websocket code/reason on Error object, if there is one
 // TODO: add AbortSignal support
 // TODO: remove EventEmitter
+// TODO: there may be many cases where checking readyState is not necessary
 // TODO: send Stream Cancellations for received streams in ignored Responses
 // TODO: send Stream Cancellations for received streams in ignored message types
 // TODO: limit octet stream chunks to be 256 KiB in size, at most
