@@ -8,7 +8,7 @@ const HEARTBEAT_TRIES = 3;
 	heartbeat failure.
  */
 
-class Heartbeat {
+module.exports = class Heartbeat {
 	constructor(callback) {
 		const noActivity = () => {
 			if (++this._pingCount > HEARTBEAT_TRIES) {
@@ -40,4 +40,4 @@ class Heartbeat {
 		this._stopped = true;
 		clearTimeout(this._timer);
 	}
-}
+};
