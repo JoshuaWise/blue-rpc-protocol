@@ -2,10 +2,13 @@
 const HEARTBEAT_INTERVAL = 5000;
 const HEARTBEAT_TRIES = 3;
 
-// Starts a new heartbeat. The returned function should be called to signal
-// any form of activity. The `callback`` parameter will be invoked with `true`
-// to warn about periods of inactivity, and it will be invoked with `false` to
-// signal a heartbeat failure. An AbortSignal is required.
+/*
+	Starts a new heartbeat. The returned function should be called to signal
+	any form of activity. The `callback`` parameter will be invoked with `true`
+	to warn about periods of inactivity, and it will be invoked with `false` to
+	signal a heartbeat failure. An AbortSignal is required.
+ */
+
 module.exports = (callback, abortSignal) => {
 	if (abortSignal.aborted) {
 		return () => {};

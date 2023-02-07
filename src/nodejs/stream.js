@@ -1,6 +1,6 @@
 'use strict';
 const { Readable } = require('stream');
-const exports = require('.');
+const exports = require('../common/stream');
 
 const onRead = Symbol('onRead');
 const onDestroy = Symbol('onDestroy');

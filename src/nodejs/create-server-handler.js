@@ -1,12 +1,12 @@
 'use strict';
 const WebSocket = require('ws');
 const MethodContext = require('./method-context');
-const StreamReceiver = require('./stream-receiver');
-const createIncrementor = require('./create-incrementor');
-const createHeartbeat = require('./create-heartbeat');
-const validate = require('./validate');
-const Encoder = require('./encoder');
-const Stream = require('./stream');
+const StreamReceiver = require('../common/stream-receiver');
+const createIncrementor = require('../common/create-incrementor');
+const createHeartbeat = require('../common/create-heartbeat');
+const validate = require('../common/validate');
+const Encoder = require('../common/encoder');
+const Stream = require('../common/stream');
 
 // TODO: after encoding a stream to send
 //   on data/end/error, send Stream Chunk
@@ -20,8 +20,6 @@ const Stream = require('./stream');
 
 // TODO: note that msgpack decode AND encode can both throw
 // TODO: make sure we are not allowing ourselves to encode streams in streams
-
-// TODO: handling of duplicate Stream IDs or Request IDs is not currently in the spec
 
 module.exports = (methods, logger) => {
 	const getSocketId = createIncrementor();

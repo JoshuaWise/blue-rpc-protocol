@@ -1,5 +1,5 @@
 'use strict';
-require('./stream/nodejs');
+require('./stream');
 const https = require('https');
 const { URL } = require('url');
 const { WebSocket, WebSocketServer } = require('ws');

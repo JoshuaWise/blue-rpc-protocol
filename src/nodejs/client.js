@@ -1,9 +1,7 @@
 'use strict';
 const EventEmitter = require('events');
 const WebSocket = require('ws');
-const createIncrementor = require('./create-incrementor');
-const parseRequest = require('./parse-request');
-const parseResponse = require('./parse-response');
+const createIncrementor = require('../common/create-incrementor');
 
 const HEARTBEAT_INTERVAL = 5000;
 const HEARTBEAT_TRIES = 3;
