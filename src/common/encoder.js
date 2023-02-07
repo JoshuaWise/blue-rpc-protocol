@@ -79,7 +79,7 @@ module.exports = class Encoder {
 	}
 
 	// Encode a MessagePack value, ensuring that no streams are encoded.
-	encodeWithoutStreams(value) {
+	encodeInert(value) {
 		return msgpack.encode(value, this._codecWithoutStreams);
 	}
 

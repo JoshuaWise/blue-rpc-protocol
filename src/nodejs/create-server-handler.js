@@ -4,9 +4,10 @@ const MethodContext = require('./method-context');
 const StreamReceiver = require('../common/stream-receiver');
 const createIncrementor = require('../common/create-incrementor');
 const createHeartbeat = require('../common/create-heartbeat');
-const validate = require('../common/validate');
+const validateMessage = require('../common/validate-message');
 const Encoder = require('../common/encoder');
 const Stream = require('../common/stream');
+const M = require('../common/message');
 
 // TODO: after encoding a stream to send
 //   on data/end/error, send Stream Chunk
@@ -50,14 +51,14 @@ module.exports = (methods, logger) => {
 					logger('Socket[%s] method "%s" succeeded', socketId, methodName);
 					if (!context.isNotification && !context.isAborted) {
 						// TODO: encode() could return streams
-						socket.send(encoder.encode([2, context.requestId, returned]));
+						socket.send(encoder.encode([M.RESPONSE_SUCCESS, context.requestId, returned]));
 					}
 				}, (err) => {
 					logger('Socket[%s] method "%s" failed: %s', socketId, methodName, err);
 					if (!context.isNotification && !context.isAborted) {
 						err = err instanceof Error && err.expose ? err : new Error(err.message);
 						// TODO: encode() could return streams
-						socket.send(encoder.encode([3, context.requestId, err]));
+						socket.send(encoder.encode([M.RESPONSE_FAILURE, context.requestId, err]));
 					}
 				})
 				.catch((err) => {
@@ -73,14 +74,14 @@ module.exports = (methods, logger) => {
 				receivedStreams.set(streamId, receiver);
 				receiver.onCancellation = () => {
 					if (receivedStreams.delete(streamId)) {
-						socket.send(encoder.encodeWithoutStreams([8, streamId]));
+						socket.send(encoder.encodeInert([M.STREAM_CANCELLATION, streamId]));
 					}
 				};
 				receiver.onSignal = (received, available) => {
 					if (receivedStreams.has(streamId)) {
 						received = Math.floor(received / 1024);
 						available = Math.floor(available / 1024);
-						socket.send(encoder.encodeWithoutStreams([9, streamId, received, available]));
+						socket.send(encoder.encodeInert([M.STREAM_SIGNAL, streamId, received, available]));
 					}
 				};
 			}
@@ -91,7 +92,7 @@ module.exports = (methods, logger) => {
 				if (!Stream.isLocked(stream)) {
 					Stream.cancel(stream);
 					receivedStreams.delete(streamId);
-					socket.send(encoder.encodeWithoutStreams([8, streamId]));
+					socket.send(encoder.encodeInert([M.STREAM_CANCELLATION, streamId]));
 				}
 			}
 		}
@@ -142,32 +143,26 @@ module.exports = (methods, logger) => {
 					return;
 				}
 
-				if (!validate.AnyMessage(msg)) {
+				if (!validateMessage(msg) || msg[0] === M.RESPONSE_SUCCESS || msg[0] === M.RESPONSE_FAILURE) {
 					logger('Socket[%s] received invalid Scratch-RPC message', socketId);
 					socket.close(1008, 'Invalid message');
 					return;
 				}
 
-				const config = messageHandlers.get(msg[0]);
-				if (!config) {
+				const handler = messageHandlers.get(msg[0]);
+				if (!handler) {
 					logger('Socket[%s] received unknown Scratch-RPC message', socketId);
 					discardStreams(streams);
 					return;
 				}
 
-				if (!config.validate(msg)) {
-					logger('Socket[%s] received improper Scratch-RPC message', socketId);
-					socket.close(1008, 'Improper message');
-					return;
-				}
-
-				if (msg[0] === 7 && streams.size) {
+				if (msg[0] === M.STREAM_CHUNK_ERROR && streams.size) {
 					logger('Socket[%s] received forbidden stream nesting', socketId);
 					socket.close(1008, 'Stream nesting not allowed');
 					return;
 				}
 
-				if (msg[0] === 0 && requests.has(msg[1])) {
+				if (msg[0] === M.REQUEST && requests.has(msg[1])) {
 					logger('Socket[%s] received duplicate request ID', socketId);
 					socket.close(1008, 'Illegal duplicate ID');
 					return;
@@ -185,102 +180,72 @@ module.exports = (methods, logger) => {
 			});
 
 		const messageHandlers = new Map([
-			[0, {
-				validate: validate.Request,
-				handler: ([, requestId, methodName, param], streams) => {
-					const method = methods.get(methodName);
-					if (typeof method === 'function') {
-						const abortController = new AbortController();
-						const context = new MethodContext(abortController.signal, requestId);
-						receiveStreams(streams);
-						requests.set(requestId, abortController);
-						invokeMethod(method, methodName, param, context, () => {
-							requests.delete(requestId);
-							discardStreams(streams);
-						});
-					} else {
-						logger('Socket[%s] method "%s" not found', socketId, methodName);
-						// TODO: allow customization of this error
-						// TODO: encode() could return streams
-						socket.send(encoder.encode([3, requestId, new Error('Method not found')]));
+			[M.REQUEST, ([, requestId, methodName, param], streams) => {
+				const method = methods.get(methodName);
+				if (typeof method === 'function') {
+					const abortController = new AbortController();
+					const context = new MethodContext(abortController.signal, requestId);
+					receiveStreams(streams);
+					requests.set(requestId, abortController);
+					invokeMethod(method, methodName, param, context, () => {
+						requests.delete(requestId);
 						discardStreams(streams);
-					}
-				},
+					});
+				} else {
+					logger('Socket[%s] method "%s" not found', socketId, methodName);
+					// TODO: allow customization of this error
+					// TODO: encode() could return streams
+					socket.send(encoder.encode([M.RESPONSE_FAILURE, requestId, new Error('Method not found')]));
+					discardStreams(streams);
+				}
 			}],
-			[1, {
-				validate: validate.Notification,
-				handler: ([, methodName, param], streams) => {
-					const method = methods.get(methodName);
-					if (typeof method === 'function') {
-						const abortController = new AbortController();
-						const context = new MethodContext(abortController.signal, null);
-						receiveStreams(streams);
-						notifications.add(abortController);
-						invokeMethod(method, methodName, param, context, () => {
-							notifications.delete(abortController);
-							discardStreams(streams);
-						});
-					} else {
-						logger('Socket[%s] method "%s" not found', socketId, methodName);
+			[M.NOTIFICATION, ([, methodName, param], streams) => {
+				const method = methods.get(methodName);
+				if (typeof method === 'function') {
+					const abortController = new AbortController();
+					const context = new MethodContext(abortController.signal, null);
+					receiveStreams(streams);
+					notifications.add(abortController);
+					invokeMethod(method, methodName, param, context, () => {
+						notifications.delete(abortController);
 						discardStreams(streams);
-					}
-				},
+					});
+				} else {
+					logger('Socket[%s] method "%s" not found', socketId, methodName);
+					discardStreams(streams);
+				}
 			}],
-			[2, {
-				validate: () => false,
+			[M.CANCELLATION, ([, requestId]) => {
+				const abortController = requests.get(requestId);
+				if (abortController) {
+					abortController.abort();
+				}
 			}],
-			[3, {
-				validate: () => false,
+			[M.STREAM_CHUNK_DATA, ([, streamId, data]) => {
+				const receiver = receivedStreams.get(streamId);
+				if (receiver) {
+					receiver.write(data);
+				}
 			}],
-			[4, {
-				validate: validate.Cancellation,
-				handler: ([, requestId]) => {
-					const abortController = requests.get(requestId);
-					if (abortController) {
-						abortController.abort();
-					}
-				},
+			[M.STREAM_CHUNK_END, ([, streamId]) => {
+				const receiver = receivedStreams.get(streamId);
+				if (receiver) {
+					receivedStreams.delete(streamId);
+					receiver.end();
+				}
 			}],
-			[5, {
-				validate: validate.StreamChunkData,
-				handler: ([, streamId, data]) => {
-					const receiver = receivedStreams.get(streamId);
-					if (receiver) {
-						receiver.write(data);
-					}
-				},
+			[M.STREAM_CHUNK_ERROR, ([, streamId, err]) => {
+				const receiver = receivedStreams.get(streamId);
+				if (receiver) {
+					receivedStreams.delete(streamId);
+					receiver.error(err);
+				}
 			}],
-			[6, {
-				validate: validate.StreamChunkEnd,
-				handler: ([, streamId]) => {
-					const receiver = receivedStreams.get(streamId);
-					if (receiver) {
-						receivedStreams.delete(streamId);
-						receiver.end();
-					}
-				},
+			[M.STREAM_CANCELLATION, ([, streamId]) => {
+				// TODO: if recognized then cancel, else ignore
 			}],
-			[7, {
-				validate: validate.StreamChunkError,
-				handler: ([, streamId, err]) => {
-					const receiver = receivedStreams.get(streamId);
-					if (receiver) {
-						receivedStreams.delete(streamId);
-						receiver.error(err);
-					}
-				},
-			}],
-			[8, {
-				validate: validate.StreamCancellation,
-				handler: ([, streamId]) => {
-					// TODO: if recognized then cancel, else ignore
-				},
-			}],
-			[9, {
-				validate: validate.StreamSignal,
-				handler: ([, streamId, receivedKiB, availableKiB]) => {
-					// TODO: if recognized then calculate pause/resume, else ignore
-				},
+			[M.STREAM_SIGNAL, ([, streamId, receivedKiB, availableKiB]) => {
+				// TODO: if recognized then calculate pause/resume, else ignore
 			}],
 		]);
 

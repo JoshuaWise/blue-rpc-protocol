@@ -14,9 +14,6 @@ exports.error = (stream, err) => stream.destroy(err);
 exports.cancel = (stream) => stream.destroy();
 exports.canWriteNull = false;
 
-// TODO: allow configurable highWaterMark (based on Peer's settings)
-// TODO: pass the connection's AbortSignal as "signal" option
-//   or, just use require('stream').addAbortSignal(signal, stream)
 exports.new = (isOctetStream) => {
 	return new Readable({
 		objectMode: !isOctetStream,
