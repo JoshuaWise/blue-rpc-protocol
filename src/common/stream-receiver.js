@@ -46,6 +46,8 @@ module.exports = class StreamReceiver {
 			this._bufferSize = 0;
 			this._destroyed = true;
 			this._onCancellation();
+			this._onCancellation = () => {};
+			this._onSignal = () => {};
 		});
 
 		Promise.resolve().then(() => {
@@ -69,8 +71,8 @@ module.exports = class StreamReceiver {
 			try {
 				value = parseStream(data, this._encoder);
 			} catch (err) {
-				this.error(new Error(`Scratch-RPC: ${err.message}`));
 				this._onCancellation(err);
+				this.error(new Error(`Scratch-RPC: ${err.message}`));
 				return;
 			}
 			if (Stream.canWriteNull || value !== null) {
