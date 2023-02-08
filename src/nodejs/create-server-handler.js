@@ -1,4 +1,5 @@
 'use strict';
+const tls = require('tls');
 const WebSocket = require('ws');
 const MethodContext = require('./method-context');
 const StreamSender = require('../common/stream-sender');
@@ -14,8 +15,9 @@ const M = require('../common/message');
 module.exports = (methods, logger) => {
 	const getSocketId = createIncrementor();
 
-	return (socket) => {
+	return (socket, req) => {
 		const socketId = getSocketId();
+		const conn = createConnectionObject(req);
 		const heartbeat = new Heartbeat(onHeartbeat);
 		const encoder = new Encoder();
 		const requests = new Map();
@@ -197,7 +199,7 @@ module.exports = (methods, logger) => {
 		const handlers = {
 			[M.REQUEST]([requestId, methodName, param], streams) {
 				const abortController = new AbortController();
-				const ctx = new MethodContext(abortController.signal, requestId);
+				const ctx = new MethodContext(abortController.signal, requestId, conn);
 				requests.set(requestId, abortController);
 				invokeMethod(ctx, methodName, param, streams, () => {
 					requests.delete(requestId);
@@ -205,7 +207,7 @@ module.exports = (methods, logger) => {
 			},
 			[M.NOTIFICATION]([methodName, param], streams) {
 				const abortController = new AbortController();
-				const ctx = new MethodContext(abortController.signal, null);
+				const ctx = new MethodContext(abortController.signal, null, conn);
 				notifications.add(abortController);
 				invokeMethod(ctx, methodName, param, streams, () => {
 					notifications.delete(abortController);
@@ -267,4 +269,11 @@ function normalizeError(err) {
 	if (!(err instanceof Error)) return new Error(err);
 	if (!err.expose) return new Error(err.message);
 	return err;
+}
+
+function createConnectionObject(req) {
+	return {
+		tls: req.socket instanceof tls.TLSSocket,
+		headers: req.headers,
+	};
 }

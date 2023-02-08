@@ -5,9 +5,10 @@
  */
 
 module.exports = class MethodContext {
-	constructor(abortSignal, requestId) {
+	constructor(abortSignal, requestId, connection) {
 		this.signal = abortSignal;
 		this.requestId = requestId;
+		this.connection = connection;
 		Object.freeze(this);
 	}
 

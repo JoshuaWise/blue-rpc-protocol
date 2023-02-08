@@ -126,17 +126,31 @@ These constants are available as static properties of [ScratchClient][ScratchCli
 
 # class *MethodContext*
 
-### context.abortSignal
+### context.signal
 
 - [<AbortSignal>][AbortSignal]
 
 Read-only property communicating whether this RPC method was aborted by the client. Note that the client can trigger this explicitly but it will also be triggered automatically if the WebSocket connection closes.
+
+### context.isAborted
+
+- [<boolean>][boolean]
+
+Alias for `context.signal.aborted`.
 
 ### context.isNotification
 
 - [<boolean>][boolean]
 
 Read-only property indicating whether this RPC method was invoked as a notification.
+
+### context.connection
+
+- [<Object>][Object]
+	- `tls` [<boolean>][boolean] Whether this RPC method was invoked over a [TLS](https://nodejs.org/api/tls.html) connection.
+	- `headers` [<Object>][Object] The headers that were sent by the client in the WebSocket opening handshake.
+
+An object containing info about the underling connection. This object is shared among all RPC calls on the same connection, so you can use it as a place to store your own "session data".
 
 
 
