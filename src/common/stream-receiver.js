@@ -33,7 +33,7 @@ module.exports = class StreamReceiver {
 				this._buffer = this._buffer.slice(index);
 				if (this._ended) {
 					if (!this._bufferSize) {
-						Stream.end(this._stream);
+						Stream.end(stream);
 					}
 				} else {
 					this._checkSignal();
@@ -41,7 +41,7 @@ module.exports = class StreamReceiver {
 			}
 		});
 
-		Stream.onCancelled(stream, () => {
+		Stream.onDestroyed(stream, () => {
 			this._buffer = [];
 			this._bufferSize = 0;
 			this._destroyed = true;
@@ -49,6 +49,9 @@ module.exports = class StreamReceiver {
 			this._onCancellation = () => {};
 			this._onSignal = () => {};
 		});
+
+		// Supress Unhandled 'error' events.
+		Stream.onError(stream, () => {});
 
 		Promise.resolve().then(() => {
 			if (!this._didSignal) {
@@ -103,9 +106,14 @@ module.exports = class StreamReceiver {
 	}
 
 	error(err) {
-		this._buffer = [];
-		this._bufferSize = 0;
-		this._destroyed = true;
-		Stream.error(this._stream, err);
+		// We need to delay this by one tick, so that clients who received the
+		// stream within a response are guaranteed access to the stream before
+		// the "error" event is emitted.
+		Promise.resolve().then(() => {
+			this._buffer = [];
+			this._bufferSize = 0;
+			this._destroyed = true;
+			Stream.error(this._stream, err);
+		});
 	}
 };

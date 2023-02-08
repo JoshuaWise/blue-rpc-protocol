@@ -1,154 +1,304 @@
 'use strict';
-const EventEmitter = require('events');
 const WebSocket = require('ws');
+const StreamSender = require('../common/stream-sender');
+const StreamReceiver = require('../common/stream-receiver');
+const destroyAllStreams = require('../common/destroy-all-streams');
 const createIncrementor = require('../common/create-incrementor');
+const parseMessage = require('../common/parse-message');
+const Heartbeat = require('../common/heartbeat');
+const Encoder = require('../common/encoder');
+const Stream = require('../common/stream');
+const M = require('../common/message');
 
-const HEARTBEAT_INTERVAL = 5000;
-const HEARTBEAT_TRIES = 3;
-const socket = Symbol('socket');
-const pending = Symbol('pending');
-const incrementor = Symbol('incrementor');
+module.exports = class ScratchClient {
+	constructor(socket) {
+		if (!(socket instanceof WebSocket)) {
+			throw new TypeError('Expected first argument to be a WebSocket');
+		}
+		if (socket.readyState !== WebSocket.OPEN) {
+			throw new TypeError('Expected WebSocket to be in the OPEN state');
+		}
 
-// A Scratch-RPC client.
-// Supported events:
-//   error(err)
-//   close(close, reason)
-//   notification:<METHOD>(...params)
-// TODO: remove EventEmitter
-//   use a promise for close/error event
-//   use something else for notifications
-//   in the browser, use Streams API
-// TODO: on client.closed:
-//   convert to an error for any non-1000, non-1001 code
-//   always expose websocket code/reason on Error object, if there is one
-// TODO: add AbortSignal support
-// TODO: remove EventEmitter
-// TODO: there may be many cases where checking readyState is not necessary
-// TODO: send Stream Cancellations for received streams in ignored Responses
-// TODO: send Stream Cancellations for received streams in ignored message types
-// TODO: limit octet stream chunks to be 256 KiB in size, at most
-// TODO: maybe buffer/group octet stream chunks to be at least 64 KiB, if waiting anyways
-// TODO: when sending a stream, pause/resume based on ws.bufferedAmount (not just Stream Signals)
-module.exports = class ScratchClient extends EventEmitter {
-	constructor(sock) {
-		// TODO: make sure sock is connected
-		super();
-		this[socket] = sock;
-		this[pending] = new Map();
-		this[incrementor] = createIncrementor();
+		let error;
+		const closed = createDeferred();
+		const getRequestId = createIncrementor();
+		const heartbeat = new Heartbeat(onHeartbeat);
+		const encoder = new Encoder();
+		const requests = new Map();
+		const sentStreams = new Map();
+		const receivedStreams = new Map();
 
-		let hadError = false;
-		const emitError = (err) => {
-			if (!hadError) {
-				hadError = true;
-				this.emit('error', err);
-			}
-		};
-
-		sock.on('error', emitError);
-
-		sock.on('close', (code, reason) => {
-			clearTimeout(timer);
-			this[pending].clear();
-			this.emit('close', code, reason);
-		});
-
-		sock.on('ping', () => {
-			resetHeartbeat();
-			if (sock.readyState === WebSocket.OPEN) {
-				sock.pong();
-			}
-		});
-
-		sock.on('pong', () => {
-			resetHeartbeat();
-		});
-
-		sock.on('message', (stringOrBuffer) => {
-			resetHeartbeat();
-
-			// Parse the incoming response or notification and invoke the appropriate listeners.
-			// If the message is invalid, we close the connection.
-			let msg = parseResponse(stringOrBuffer) || parseRequest(stringOrBuffer);
-			if (msg === null || msg.method && msg.id || !msg.method && !this[pending].has(msg.id)) {
-				sock.close(1008); // TODO: add reason message
-				emitError(new Error('Invalid message received'));
-			} else if (msg.method) {
-				this.emit(`notification:${msg.method}`, ...msg.params);
+		function onHeartbeat(isAlive) {
+			if (isAlive) {
+				socket.ping();
 			} else {
-				const resolver = this[pending].get(msg.id);
-				this[pending].delete(msg.id);
-				if (msg.error !== null) {
-					resolver.reject(msg.error);
+				if (!error) {
+					error = new Error('Scratch-RPC: heartbeat failure');
+					error.code = 1006;
+				}
+				socket.close(1001, 'Connection timed out');
+				socket.terminate();
+			}
+		}
+
+		function sendStreams(streams) {
+			for (const [streamId, stream] of streams) {
+				sentStreams.set(streamId, new StreamSender(stream, encoder, {
+					onData: (data) => {
+						if (sentStreams.has(streamId)) {
+							socket.send(encoder.encodeInert(
+								[M.STREAM_CHUNK_DATA, streamId, data]
+							));
+						}
+					},
+					onEnd: () => {
+						if (sentStreams.delete(streamId)) {
+							socket.send(encoder.encodeInert(
+								[M.STREAM_CHUNK_END, streamId]
+							));
+						}
+					},
+					onError: (err) => {
+						if (sentStreams.delete(streamId)) {
+							// TODO: encoding this Error can throw
+							socket.send(encoder.encodeInert(
+								[M.STREAM_CHUNK_ERROR, streamId, normalizeError(err)]
+							));
+						}
+					},
+					getBufferedAmount: () => {
+						return socket.bufferedAmount;
+					},
+				}));
+			}
+		}
+
+		function receiveStreams(streams) {
+			for (const [streamId, stream] of streams) {
+				receivedStreams.set(streamId, new StreamReceiver(stream, encoder, {
+					onCancellation: (err) => {
+						if (receivedStreams.delete(streamId)) {
+							socket.send(encoder.encodeInert(
+								[M.STREAM_CANCELLATION, streamId]
+							));
+						}
+						if (err) {
+							error = error || new Error(`Scratch-RPC: ${err.message}`);
+							socket.close(err.code, err.reason);
+						}
+					},
+					onSignal: (received, available) => {
+						if (receivedStreams.has(streamId)) {
+							const receivedKiB = Math.floor(received / 1024);
+							const availableKiB = Math.floor(available / 1024);
+							socket.send(encoder.encodeInert(
+								[M.STREAM_SIGNAL, streamId, receivedKiB, availableKiB]
+							));
+						}
+					},
+				}));
+			}
+		}
+
+		function discardStreams(streams) {
+			for (const [streamId, stream] of streams) {
+				Stream.cancel(stream);
+				socket.send(encoder.encodeInert(
+					[M.STREAM_CANCELLATION, streamId]
+				));
+			}
+		}
+
+		socket
+			.on('close', (code, reason) => {
+				if (error) {
+					if (typeof error.code !== 'number') error.code = code || 1005;
+					if (typeof error.reason !== 'string') error.reason = reason || '';
+					closed.reject(error);
+				} else if (code !== 1000 && code !== 1001) {
+					error = new Error('WebSocket closed unexpectedly');
+					error.code = code || 1005;
+					error.reason = reason || '';
+					closed.reject(error);
 				} else {
-					resolver.resolve(msg.result);
+					closed.resolve();
 				}
-			}
-		});
+				for (const abortController of requests.values()) {
+					abortController.abort();
+				}
+				for (const sender of sentStreams.values()) {
+					sender.cancel();
+				}
+				for (const receiver of receivedStreams.values()) {
+					receiver.error(new Error('Scratch-RPC: WebSocket disconnected'));
+				}
+				requests.clear();
+				sentStreams.clear();
+				receivedStreams.clear();
+				heartbeat.stop();
+			})
+			.on('error', (err) => {
+				error = error || err;
+			})
+			.on('ping', () => {
+				heartbeat.reset();
+			})
+			.on('pong', () => {
+				heartbeat.reset();
+			})
+			.on('message', (rawMsg) => {
+				heartbeat.reset();
 
-		// Send a ping after periods of inactivity, and expect some activity in response.
-		const checkHeartbeat = () => {
-			if (++heartbeatAttempt > HEARTBEAT_TRIES) {
-				// TODO: send 1001
-				sock.terminate();
-				emitError(new Error('WebSocket heartbeat failure')); // TODO: raise 1006
-			} else {
-				if (sock.readyState === WebSocket.OPEN) {
-					sock.ping();
+				let msgType, msg, streams;
+				try {
+					[msgType, msg, streams] = parseMessage(
+						rawMsg, encoder, handlers, receivedStreams
+					);
+				} catch (err) {
+					error = error || new Error(`Scratch-RPC: ${err.message}`);
+					socket.close(err.code, err.reason);
+					return;
 				}
-				timer = setTimeout(checkHeartbeat, HEARTBEAT_INTERVAL);
-			}
+
+				const handler = handlers[msgType];
+				if (handler) {
+					handler(msg, streams);
+				} else {
+					discardStreams(streams);
+				}
+			});
+
+		const handlers = {
+			[M.RESPONSE_SUCCESS]([requestId, result], streams) {
+				const resolver = requests.get(requestId);
+				if (resolver) {
+					requests.delete(requestId);
+					resolver.resolve(result);
+					receiveStreams(streams);
+				} else {
+					discardStreams(streams);
+				}
+			},
+			[M.RESPONSE_FAILURE]([requestId, err], streams) {
+				const resolver = requests.get(requestId);
+				if (resolver) {
+					requests.delete(requestId);
+					resolver.reject(err);
+					receiveStreams(streams);
+				} else {
+					discardStreams(streams);
+				}
+			},
+			[M.STREAM_CHUNK_DATA]([streamId, data]) {
+				const receiver = receivedStreams.get(streamId);
+				if (receiver) {
+					receiver.write(data);
+				}
+			},
+			[M.STREAM_CHUNK_END]([streamId]) {
+				const receiver = receivedStreams.get(streamId);
+				if (receiver) {
+					receivedStreams.delete(streamId);
+					receiver.end();
+				}
+			},
+			[M.STREAM_CHUNK_ERROR]([streamId, err]) {
+				const receiver = receivedStreams.get(streamId);
+				if (receiver) {
+					receivedStreams.delete(streamId);
+					receiver.error(err);
+				}
+			},
+			[M.STREAM_CANCELLATION]([streamId]) {
+				const sender = sentStreams.get(streamId);
+				if (sender) {
+					sentStreams.delete(streamId);
+					sender.cancel();
+				}
+			},
+			[M.STREAM_SIGNAL]([streamId, receivedKiB, availableKiB]) {
+				const sender = sentStreams.get(streamId);
+				if (sender) {
+					sender.signal(receivedKiB, availableKiB);
+				}
+			},
 		};
 
-		// After receiving any activity, reset the heartbeat timer and counter.
-		const resetHeartbeat = () => {
-			heartbeatAttempt = 0;
-			clearTimeout(timer);
-			timer = setTimeout(checkHeartbeat, HEARTBEAT_INTERVAL);
-		};
+		Object.assign(this, {
+			invoke(methodName, param, abortSignal) {
+				return new Promise((resolve, reject) => {
+					if (typeof methodName !== 'string') {
+						throw new TypeError('Expected "methodName" argument to be a string');
+					}
+					if (abortSignal instanceof AbortSignal && abortSignal.aborted) {
+						destroyAllStreams(param); // Prevent resource leaks
+						throw abortSignal.reason;
+					}
+					const requestId = getRequestId();
+					let result;
+					try {
+						result = encoder.encode([M.REQUEST, requestId, methodName, param]);
+					} catch (err) {
+						reject(err);
+						destroyAllStreams(param); // Prevent resource leaks
+						return;
+					}
+					socket.send(result.result);
+					sendStreams(result.streams);
+					requests.set(requestId, { resolve, reject });
+					if (abortSignal instanceof AbortSignal) {
+						abortSignal.addEventListener('abort', () => {
+							if (requests.delete(requestId)) {
+								reject(abortSignal.reason);
+								socket.send(encoder.encodeInert([M.CANCELLATION, requestId]));
+							}
+							for (const stream of result.streams) {
+								Stream.error(abortSignal.reason);
+							}
+						});
+					}
+				});
+			},
 
-		let heartbeatAttempt = 0;
-		let timer = setTimeout(checkHeartbeat, HEARTBEAT_INTERVAL);
-	}
+			notify(methodName, param) {
+				if (typeof methodName !== 'string') {
+					throw new TypeError('Expected "methodName" argument to be a string');
+				}
+				let result;
+				try {
+					result = encoder.encode([M.NOTIFICATION, methodName, param]);
+				} catch (err) {
+					destroyAllStreams(param); // Prevent resource leaks
+					throw err;
+				}
+				socket.send(result.result);
+				sendStreams(result.streams);
+			},
 
-	request(method, ...params) {
-		return new Promise((resolve, reject) => {
-			if (typeof method !== 'string') {
-				throw new TypeError('Expected "method" argument to be a string');
-			}
-			if (!method) {
-				throw new TypeError('Expected "method" argument to be non-empty');
-			}
-			if (this[socket].readyState === WebSocket.OPEN) {
-				const id = String(this[incrementor]());
-				this[socket].send(JSON.stringify({ id, method, params }));
-				this[pending].set(id, { resolve, reject });
-			}
+			close(err) {
+				if (err instanceof Error) {
+					error = error || err;
+					socket.close(err.code, err.reason);
+				} else {
+					socket.close(1000, 'Normal closure');
+				}
+				return closed.promise;
+			},
+
+			terminate(err) {
+				this.close(err);
+				socket.terminate();
+				return closed.promise;
+			},
+
+			get closed() {
+				return closed.promise;
+			},
+
+			get readyState() {
+				return socket.readyState;
+			},
 		});
-	}
-
-	notify(method, ...params) {
-		if (typeof method !== 'string') {
-			throw new TypeError('Expected "method" argument to be a string');
-		}
-		if (!method) {
-			throw new TypeError('Expected "method" argument to be non-empty');
-		}
-		if (this[socket].readyState === WebSocket.OPEN) {
-			this[socket].send(JSON.stringify({ id: null, method, params }));
-		}
-	}
-
-	close(code, reason) {
-		this[socket].close(code, reason);
-	}
-
-	terminate() {
-		this[socket].terminate();
-	}
-
-	get readyState() {
-		return this[socket].readyState;
 	}
 };
 
@@ -156,3 +306,19 @@ module.exports.CONNECTING = 0;
 module.exports.OPEN = 1;
 module.exports.CLOSING = 2;
 module.exports.CLOSED = 3;
+
+function createDeferred() {
+	let resolve, reject;
+	const promise = new Promise((res, rej) => {
+		resolve = res;
+		reject = rej;
+	});
+	return { promise, resolve, reject };
+}
+
+// TODO: we dont actually want to expose the "expose" property
+function normalizeError(err) {
+	if (!(err instanceof Error)) return new Error(err);
+	if (!err.expose) return new Error(err.message);
+	return err;
+}

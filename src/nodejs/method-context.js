@@ -1,6 +1,9 @@
 'use strict';
 
-// Exposes metadata about a Scratch-RPC method invocation.
+/*
+	Exposes metadata about a Scratch-RPC method invocation.
+ */
+
 module.exports = class MethodContext {
 	constructor(abortSignal, requestId) {
 		this.signal = abortSignal;

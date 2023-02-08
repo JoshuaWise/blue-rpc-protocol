@@ -1,7 +1,10 @@
 'use strict';
 const os = require('os');
 
-// Returns an array of this host's IPv4 addresses.
+/*
+	Returns an array of this host's IPv4 addresses.
+ */
+
 module.exports = () => {
 	return Object.values(os.networkInterfaces())
 		.flat()

@@ -1,26 +1,15 @@
 'use strict';
 const WebSocket = require('ws');
 const MethodContext = require('./method-context');
+const StreamSender = require('../common/stream-sender');
 const StreamReceiver = require('../common/stream-receiver');
+const destroyAllStreams = require('../common/destroy-all-streams');
 const createIncrementor = require('../common/create-incrementor');
 const parseMessage = require('../common/parse-message');
 const Heartbeat = require('../common/heartbeat');
 const Encoder = require('../common/encoder');
 const Stream = require('../common/stream');
 const M = require('../common/message');
-
-// TODO: after encoding a stream to send
-//   on data/end/error, send Stream Chunk
-//   upon receiving Stream Cancel, destroy the stream
-//   DO NOT store this in the set of "open Stream IDs"
-// TODO: destroy/abort sent streams when connection closes
-
-// TODO: limit octet stream chunks to be 256 KiB in size, at most
-// TODO: maybe buffer/group octet stream chunks to be at least 64 KiB, if waiting anyways
-// TODO: when sending a stream, pause/resume based on ws.bufferedAmount (not just Stream Signals)
-
-// TODO: note that msgpack decode AND encode can both throw
-// TODO: make sure we are not allowing ourselves to encode streams in streams
 
 module.exports = (methods, logger) => {
 	const getSocketId = createIncrementor();
@@ -31,6 +20,7 @@ module.exports = (methods, logger) => {
 		const encoder = new Encoder();
 		const requests = new Map();
 		const notifications = new Set();
+		const sentStreams = new Map();
 		const receivedStreams = new Map();
 
 		function onHeartbeat(isAlive) {
@@ -44,27 +34,16 @@ module.exports = (methods, logger) => {
 		}
 
 		function invokeMethod(ctx, methodName, param, streams, cb) {
-			logger('Socket[%s] method "%s" invoked', socketId, methodName);
+			logger('Socket[%s] method invoked: "%s"', socketId, methodName);
 			receiveStreams(streams);
 			const method = methods.get(methodName) || methodNotFound;
 			new Promise(resolve => resolve(method(param, ctx)))
 				.then((result) => {
-					logger('Socket[%s] method "%s" succeeded', socketId, methodName);
-					if (!ctx.isNotification && !ctx.isAborted) {
-						// TODO: encode() could return streams
-						socket.send(encoder.encode([M.RESPONSE_SUCCESS, ctx.requestId, result]));
-					}
+					logger('Socket[%s] method succeeded: "%s"', socketId, methodName);
+					sendResponse(ctx, M.RESPONSE_SUCCESS, result);
 				}, (err) => {
-					logger('Socket[%s] method "%s" failed: %s', socketId, methodName, err);
-					if (!ctx.isNotification && !ctx.isAborted) {
-						err = err instanceof Error && err.expose ? err : new Error(err.message);
-						// TODO: encode() could return streams
-						socket.send(encoder.encode([M.RESPONSE_FAILURE, ctx.requestId, err]));
-					}
-				})
-				.catch((err) => {
-					logger('Socket[%s] error: %s', socketId, err);
-					socket.close(1011, 'Server error');
+					logger('Socket[%s] method failed: "%s"\n%s', socketId, methodName, err);
+					sendResponse(ctx, M.RESPONSE_FAILURE, normalizeError(err));
 				})
 				.finally(() => {
 					discardStreams(streams);
@@ -72,12 +51,64 @@ module.exports = (methods, logger) => {
 				});
 		}
 
+		function sendResponse(ctx, msgType, value) {
+			if (!ctx.isNotification && !ctx.isAborted) {
+				let result;
+				try {
+					result = encoder.encode([msgType, ctx.requestId, value]);
+				} catch (err) {
+					logger('Socket[%s] error\n%s', socketId, err);
+					socket.close(1011, 'Server error');
+					destroyAllStreams(value); // Prevent resource leaks
+					return;
+				}
+				socket.send(result.result);
+				sendStreams(result.streams);
+			} else {
+				destroyAllStreams(value);
+			}
+		}
+
+		function sendStreams(streams) {
+			for (const [streamId, stream] of streams) {
+				sentStreams.set(streamId, new StreamSender(stream, encoder, {
+					onData: (data) => {
+						if (sentStreams.has(streamId)) {
+							socket.send(encoder.encodeInert(
+								[M.STREAM_CHUNK_DATA, streamId, data]
+							));
+						}
+					},
+					onEnd: () => {
+						if (sentStreams.delete(streamId)) {
+							socket.send(encoder.encodeInert(
+								[M.STREAM_CHUNK_END, streamId]
+							));
+						}
+					},
+					onError: (err) => {
+						if (sentStreams.delete(streamId)) {
+							// TODO: encoding this Error can throw
+							socket.send(encoder.encodeInert(
+								[M.STREAM_CHUNK_ERROR, streamId, normalizeError(err)]
+							));
+						}
+					},
+					getBufferedAmount: () => {
+						return socket.bufferedAmount;
+					},
+				}));
+			}
+		}
+
 		function receiveStreams(streams) {
 			for (const [streamId, stream] of streams) {
-				const receiver = new StreamReceiver(stream, encoder, {
+				receivedStreams.set(streamId, new StreamReceiver(stream, encoder, {
 					onCancellation: (err) => {
 						if (receivedStreams.delete(streamId)) {
-							socket.send(encoder.encodeInert([M.STREAM_CANCELLATION, streamId]));
+							socket.send(encoder.encodeInert(
+								[M.STREAM_CANCELLATION, streamId]
+							));
 						}
 						if (err) {
 							logger('Socket[%s] %s', socketId, err.message);
@@ -86,13 +117,14 @@ module.exports = (methods, logger) => {
 					},
 					onSignal: (received, available) => {
 						if (receivedStreams.has(streamId)) {
-							received = Math.floor(received / 1024);
-							available = Math.floor(available / 1024);
-							socket.send(encoder.encodeInert([M.STREAM_SIGNAL, streamId, received, available]));
+							const receivedKiB = Math.floor(received / 1024);
+							const availableKiB = Math.floor(available / 1024);
+							socket.send(encoder.encodeInert(
+								[M.STREAM_SIGNAL, streamId, receivedKiB, availableKiB]
+							));
 						}
 					},
-				});
-				receivedStreams.set(streamId, receiver);
+				}));
 			}
 		}
 
@@ -101,7 +133,9 @@ module.exports = (methods, logger) => {
 				if (!Stream.isLocked(stream)) {
 					Stream.cancel(stream);
 					if (receivedStreams.delete(streamId) || forceCancel) {
-						socket.send(encoder.encodeInert([M.STREAM_CANCELLATION, streamId]));
+						socket.send(encoder.encodeInert(
+							[M.STREAM_CANCELLATION, streamId]
+						));
 					}
 				}
 			}
@@ -116,16 +150,20 @@ module.exports = (methods, logger) => {
 				for (const abortController of notifications.values()) {
 					abortController.abort();
 				}
+				for (const sender of sentStreams.values()) {
+					sender.cancel();
+				}
 				for (const receiver of receivedStreams.values()) {
 					receiver.error(new Error('Scratch-RPC: WebSocket disconnected'));
 				}
 				requests.clear();
 				notifications.clear();
+				sentStreams.clear();
 				receivedStreams.clear();
 				heartbeat.stop();
 			})
 			.on('error', (err) => {
-				logger('Socket[%s] error: %s', socketId, err);
+				logger('Socket[%s] error\n%s', socketId, err);
 			})
 			.on('ping', () => {
 				heartbeat.reset();
@@ -147,7 +185,7 @@ module.exports = (methods, logger) => {
 					return;
 				}
 
-				const handler = handlers.get(msgType);
+				const handler = handlers[msgType];
 				if (handler) {
 					handler(msg, streams);
 				} else {
@@ -201,10 +239,17 @@ module.exports = (methods, logger) => {
 				}
 			},
 			[M.STREAM_CANCELLATION]([streamId]) {
-				// TODO: if recognized then cancel, else ignore
+				const sender = sentStreams.get(streamId);
+				if (sender) {
+					sentStreams.delete(streamId);
+					sender.cancel();
+				}
 			},
 			[M.STREAM_SIGNAL]([streamId, receivedKiB, availableKiB]) {
-				// TODO: if recognized then calculate pause/resume, else ignore
+				const sender = sentStreams.get(streamId);
+				if (sender) {
+					sender.signal(receivedKiB, availableKiB);
+				}
 			},
 		};
 
@@ -215,4 +260,11 @@ module.exports = (methods, logger) => {
 // TODO: allow customization of this error
 function methodNotFound() {
 	throw new Error('Method not found');
+}
+
+// TODO: we dont actually want to expose the "expose" property
+function normalizeError(err) {
+	if (!(err instanceof Error)) return new Error(err);
+	if (!err.expose) return new Error(err.message);
+	return err;
 }

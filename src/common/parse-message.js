@@ -18,7 +18,7 @@ module.exports = (rawMsg, encoder, allowedMessageTypes, streamIds, requestIds) =
 
 	let msg, streams;
 	try {
-		{ result: msg, streams } = encoder.decode(rawMsg);
+		({ result: msg, streams } = encoder.decode(rawMsg));
 	} catch (err) {
 		throw createError({
 			code: 1008,
@@ -28,7 +28,7 @@ module.exports = (rawMsg, encoder, allowedMessageTypes, streamIds, requestIds) =
 	}
 
 	let msgType;
-	if (!validateMessage(msg) || !(allowedMessageTypes.has(msgType = msg[0]) || msgType > 10)) {
+	if (!validateMessage(msg) || !(allowedMessageTypes[msgType = msg[0]] || msgType > 10)) {
 		throw createError({
 			code: 1008,
 			reason: 'Invalid message',
@@ -72,7 +72,7 @@ module.exports = (rawMsg, encoder, allowedMessageTypes, streamIds, requestIds) =
 module.exports.parseStream = (rawData, encoder) => {
 	let result, streams;
 	try {
-		{ result, streams } = encoder.decode(rawData);
+		({ result, streams } = encoder.decode(rawData));
 	} catch (err) {
 		throw createError({
 			code: 1008,
