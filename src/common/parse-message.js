@@ -15,6 +15,9 @@ module.exports = (rawMsg, encoder, allowedMessageTypes, streamIds, requestIds) =
 			message: 'received forbidden text frame',
 		});
 	}
+	if (rawMsg instanceof ArrayBuffer) {
+		rawMsg = new Uint8Array(rawMsg);
+	}
 
 	let msg, streams;
 	try {

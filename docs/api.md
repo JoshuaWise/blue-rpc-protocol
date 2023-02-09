@@ -1,7 +1,7 @@
 # API
 
 - [function `listen`](#scratchrpclistenoptions)
-- [function `connect`](#scratchrpcconnecturl-options)
+- [function `createClient`](#scratchrpccreateclienturl-options)
 - [class `ScratchClient`][ScratchClient]
 	- [`client.invoke(methodName, param)`](#clientinvokemethodname-param-abortsignal)
 	- [`client.notify(methodName, param)`](#clientnotifymethodname-param)
@@ -9,8 +9,6 @@
 	- [`client.close([error])`](#clientcloseerror)
 	- [`client.terminate([error])`](#clientterminateerror)
 	- [`client.closed`](#clientclosed)
-	- [`client.readyState`](#clientreadystate)
-	- [Ready state constants](#ready-state-constants)
 - [class `MethodContext`][MethodContext]
 	- [`context.notify(methodName, param)`](#contextnotifymethodname-param)
 	- [`context.broadcast(methodName, param)`](#contextbroadcastmethodname-param)
@@ -48,22 +46,20 @@ const perMessageDeflate = {
 };
 ```
 
-### ScratchRPC.connect(url[, options])
+### ScratchRPC.createClient(url[, options])
 
 - `url` [<string>][string] The URL of the Scratch-RPC server to connect to.
 - `options` [<Object>][Object]
 	- `maxPayload` [<number>][number] The maximum accepted size of incoming WebSocket messages (in bytes). **Default:** `1048576` (1 MiB).
 	- `perMessageDeflate` [<Object>][Object] | [<boolean>][boolean] Passed to the underling [WebSocket][WebSocket] to configure automatic [message compression](https://www.rfc-editor.org/rfc/rfc7692#section-7). **Default:** Enabled for messages at least `8192` bytes (8 KiB) in size.
 	- Any option allowed in [`http.request()`](https://nodejs.org/api/http.html#httprequesturl-options-callback) or [`https.request()`](https://nodejs.org/api/https.html#httpsrequesturl-options-callback).
-- Returns: [<Promise][Promise][<ScratchClient>][ScratchClient][>][Promise]
+- Returns: [<ScratchClient>][ScratchClient]
 
 Creates a Scratch-RPC client and connects to the specified server. In the browser, all options are ignored.
 
-The returned promise will not resolve until a connection with the server is successfully established.
-
 # class *ScratchClient*
 
-This class represents a client's Scratch-RPC connection. While connected, you can invoke methods on the remote server.
+This class represents a Scratch-RPC client. It allows you to invoke methods on a remote Scratch-RPC server.
 
 ### client.invoke(methodName, param[, abortSignal])
 
@@ -72,57 +68,21 @@ This class represents a client's Scratch-RPC connection. While connected, you ca
 - `abortSignal` [<AbortSignal>][AbortSignal] A signal that the remote server will receive, if triggered. **Default:** `null`.
 - Returns: [<Promise][Promise][<any>][any][>][Promise]
 
-Invokes a method on the remote server and returns a [Promise][Promise] that will resolve with the method's result. If the method throws an exception, the promise will be rejected with the error. If [client.readyState](#clientreadystate) is not [OPEN](#ready-state-constants), the returned promise will never resolve.
+Invokes a method on the remote server and returns a [Promise][Promise] that will resolve with the method's result. If the method throws an exception, the promise will be rejected with the error.
 
 ### client.notify(methodName, param)
 
 - `methodName` [<string>][string] The name of the remote method to invoke.
 - `param` [<any>][any] The value to send to the remote method.
+- Returns: [<Promise][Promise][<undefined>][undefined][>][Promise]
+
+This is the same as [client.invoke()](#clientinvokemethodname-param-abortsignal) except that it returns nothing and it cannot be aborted. In Scratch-RPC, notifications are a way of invoking remote methods without needing an RPC response. The returned promise resolves as soon as the notification is successfully sent.
+
+### client.cancel()
+
 - Returns: [<undefined>][undefined]
 
-This is the same as [client.invoke()](#clientinvokemethodname-param-abortsignal) except that it returns nothing and it cannot be aborted. In Scratch-RPC, notifications are a way of invoking remote methods without needing an RPC response.
-
-### client.close([error])
-
-- `error` [<Error>][Error] An optional error reason for closing the connection.
-- Returns: [Promise][Promise]
-
-Closes the underlying WebSocket connection. If an `error` is passed, it will be used to reject the [client.closed](#clientclosed) promise. If the `error` object has the properties `code` and/or `reason`, they will be included in the WebSocket's [close frame](https://www.rfc-editor.org/rfc/rfc6455#section-5.5.1). Any queued messages will be gracefully sent before closing the underlying socket.
-
-For convenience, the [client.closed](#clientclosed) promise is returned.
-
-### client.terminate([error])
-
-- `error` [<Error>][Error] An optional error reason for closing the connection.
-- Returns: [Promise][Promise]
-
-This is the same as [client.close()](#clientcloseerror) except that the underlying WebSocket connection is immediately destroyed without gracefully waiting for queued messages to finish.
-
-For convenience, the [client.closed](#clientclosed) promise is returned.
-
-This method is not available on browser clients.
-
-### client.closed
-
-- [<Promise>][Promise]
-
-Read-only property containing a promise that will be resolved when the Scratch-RPC connection is closed. If the connection closes due to an error, the promise will be rejected with that [Error][Error].
-
-### client.readyState
-
-- [<number>][number]
-
-Read-only property containing one of the [ready state constants](#ready-state-constants), indicating the state of the connection.
-
-### Ready state constants
-
-These constants are available as static properties of [ScratchClient][ScratchClient], and they are also available on the default export.
-
-| Constant   | Value | Description                                            |
-| ---------- | ----- | ------------------------------------------------------ |
-| OPEN       | 1     | The connection is open and ready to communicate.       |
-| CLOSING    | 2     | The connection can receive messages but not send them. |
-| CLOSED     | 3     | The connection can no longer communicate.              |
+Closes all open WebSocket connections, cancelling any RPC calls or streams that were in progress. You may continue using the client normally after calling this.
 
 # class *MethodContext*
 

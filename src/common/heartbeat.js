@@ -1,43 +1,37 @@
 'use strict';
-const HEARTBEAT_INTERVAL = 5000;
-const HEARTBEAT_TRIES = 3;
 
 /*
-	Starts a new heartbeat. The callback will be invoked with `true` to warn
-	about periods of inactivity, and it will be invoked with `false` to signal
-	heartbeat failure.
+	Starts a new heartbeat. The callback will be invoked at regular intervals,
+	being passed a number counting down how many more times the callback will be
+	invoked before heartbeat failure occurs. Upon heartbeat failure, the
+	callback will be invoked with -1. The heartbeat can be reset to indefinitely
+	prevent/postpone heartbeat failure. The `interval` argument indicates how
+	long to wait between heartbeats (in milliseconds), and the `tries` argument
+	indicates how many consecutive non-failure heartbeats will be tolerated.
  */
 
 module.exports = class Heartbeat {
-	constructor(callback) {
-		const noActivity = () => {
-			if (++this._pingCount > HEARTBEAT_TRIES) {
-				this._stopped = true;
-				callback(false);
+	constructor(interval, tries, callback) {
+		const onHeartbeat = () => {
+			if (++this._count > tries) {
+				clearInterval(this._timer);
+				callback(-1);
 			} else {
-				this._timer = setTimeout(noActivity, HEARTBEAT_INTERVAL);
-				callback(true);
+				callback(tries - this._count);
 			}
 		};
 
-		this._stopped = false;
-		this._pingCount = 0;
-		this._timer = setTimeout(noActivity, HEARTBEAT_INTERVAL);
-		this._noActivity = noActivity;
+		this._count = 0;
+		this._timer = setInterval(onHeartbeat, interval);
 	}
 
 	// Invoke this when activity occurs to reset the heartbeat.
 	reset() {
-		if (!this._stopped) {
-			this._pingCount = 0;
-			clearTimeout(this._timer);
-			this._timer = setTimeout(this._noActivity, HEARTBEAT_INTERVAL);
-		}
+		this._count = 0;
 	}
 
 	// Abort the heartbeat and clean up.
 	stop() {
-		this._stopped = true;
-		clearTimeout(this._timer);
+		clearInterval(this._timer);
 	}
 };

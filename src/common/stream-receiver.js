@@ -21,6 +21,7 @@ module.exports = class StreamReceiver {
 		this._onCancellation = onCancellation;
 		this._onSignal = onSignal;
 
+		// TODO: maybe combine this with onDestroyed, like Stream.read
 		Stream.onResume(stream, () => {
 			this._paused = false;
 			let index = 0;
@@ -30,6 +31,7 @@ module.exports = class StreamReceiver {
 				this._handleData(data);
 			}
 			if (!this._destroyed) {
+				// TODO: this could be optimized by using a real Queue data structure
 				this._buffer = this._buffer.slice(index);
 				if (this._ended) {
 					if (!this._bufferSize) {
@@ -41,6 +43,7 @@ module.exports = class StreamReceiver {
 			}
 		});
 
+		// TODO: this might not get called on "end" and on "error" in Web Streams
 		Stream.onDestroyed(stream, () => {
 			this._buffer = [];
 			this._bufferSize = 0;
@@ -50,8 +53,8 @@ module.exports = class StreamReceiver {
 			this._onSignal = () => {};
 		});
 
-		// Supress Unhandled 'error' events.
-		Stream.onError(stream, () => {});
+		// Suppress Unhandled 'error' events.
+		Stream.dontBubbleError(stream);
 
 		Promise.resolve().then(() => {
 			if (!this._didSignal) {

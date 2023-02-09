@@ -13,7 +13,9 @@ module.exports = (obj) => {
 		if (obj === null) return;
 		if (obj instanceof Uint8Array) return;
 		if (obj instanceof Stream.Class) {
-			Stream.cancel(obj);
+			if (!Stream.isLocked(obj)) {
+				Stream.cancel(obj);
+			}
 			return;
 		}
 		if (!visited.has(obj)) {

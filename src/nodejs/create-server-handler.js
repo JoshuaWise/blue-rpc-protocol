@@ -18,18 +18,18 @@ module.exports = (methods, logger) => {
 	return (socket, req) => {
 		const socketId = getSocketId();
 		const conn = createConnectionObject(req);
-		const heartbeat = new Heartbeat(onHeartbeat);
+		const heartbeat = new Heartbeat(3000, 3, onHeartbeat);
 		const encoder = new Encoder();
 		const requests = new Map();
 		const notifications = new Set();
 		const sentStreams = new Map();
 		const receivedStreams = new Map();
 
-		function onHeartbeat(isAlive) {
-			if (isAlive) {
-				socket.ping();
+		function onHeartbeat(pingsRemaining) {
+			if (pingsRemaining >= 0) {
+				socket.ping(Buffer.from([pingsRemaining]));
 			} else {
-				logger('Socket[%s] heartbeat failure', socketId);
+				logger('Socket[%s] heartbeat timed out', socketId);
 				socket.close(1001, 'Connection timed out');
 				socket.terminate();
 			}
@@ -48,7 +48,7 @@ module.exports = (methods, logger) => {
 					sendResponse(ctx, M.RESPONSE_FAILURE, normalizeError(err));
 				})
 				.finally(() => {
-					discardStreams(streams);
+					discardUnusedStreams(streams);
 					cb();
 				});
 		}
@@ -74,11 +74,11 @@ module.exports = (methods, logger) => {
 		function sendStreams(streams) {
 			for (const [streamId, stream] of streams) {
 				sentStreams.set(streamId, new StreamSender(stream, encoder, {
-					onData: (data) => {
+					onData: (data, cb) => {
 						if (sentStreams.has(streamId)) {
 							socket.send(encoder.encodeInert(
 								[M.STREAM_CHUNK_DATA, streamId, data]
-							));
+							), cb);
 						}
 					},
 					onEnd: () => {
@@ -130,22 +130,38 @@ module.exports = (methods, logger) => {
 			}
 		}
 
-		function discardStreams(streams, forceCancel = false) {
+		function discardUnusedStreams(streams) {
 			for (const [streamId, stream] of streams) {
-				if (!Stream.isLocked(stream)) {
-					Stream.cancel(stream);
-					if (receivedStreams.delete(streamId) || forceCancel) {
-						socket.send(encoder.encodeInert(
-							[M.STREAM_CANCELLATION, streamId]
-						));
-					}
+				const receiver = receivedStreams.get(streamId);
+				if (receiver && !Stream.isLocked(stream)) {
+					receiver.error(new Error('Scratch-RPC: Stream unused'));
+					// TODO: this socket.send wouldn't be necessary if StreamReceiver
+					// called its own OnDestroy callback for end/error closures
+					// (it currently only does for cancels, but Node does it for everything)
+					// Also, without proper cleanup, I would need to delete from receivedStreams too
+					socket.send(encoder.encodeInert(
+						[M.STREAM_CANCELLATION, streamId]
+					));
 				}
 			}
 		}
 
+		function discardStreams(streams) {
+			for (const [streamId, stream] of streams) {
+				Stream.cancel(stream);
+				socket.send(encoder.encodeInert(
+					[M.STREAM_CANCELLATION, streamId]
+				));
+			}
+		}
+
+		function isActive() {
+			return !!(requests.size || sentStreams.size || receivedStreams.size);
+		}
+
 		socket
-			.on('close', () => {
-				logger('Socket[%s] closed', socketId);
+			.on('close', (code) => {
+				logger('Socket[%s] closed (%s)', socketId, code);
 				for (const abortController of requests.values()) {
 					abortController.abort();
 				}
@@ -168,13 +184,17 @@ module.exports = (methods, logger) => {
 				logger('Socket[%s] error\n%s', socketId, err);
 			})
 			.on('ping', () => {
-				heartbeat.reset();
+				isActive() && heartbeat.reset();
 			})
 			.on('pong', () => {
-				heartbeat.reset();
+				isActive() && heartbeat.reset();
 			})
 			.on('message', (rawMsg) => {
-				heartbeat.reset();
+				isActive() && heartbeat.reset();
+
+				if (socket.readyState !== WebSocket.OPEN) {
+					return; // If closing, ignore messages
+				}
 
 				let msgType, msg, streams;
 				try {
@@ -192,7 +212,7 @@ module.exports = (methods, logger) => {
 					handler(msg, streams);
 				} else {
 					logger('Socket[%s] received unknown Scratch-RPC message', socketId);
-					discardStreams(streams, true);
+					discardStreams(streams);
 				}
 			});
 
@@ -204,6 +224,7 @@ module.exports = (methods, logger) => {
 				invokeMethod(ctx, methodName, param, streams, () => {
 					requests.delete(requestId);
 				});
+				heartbeat.reset();
 			},
 			[M.NOTIFICATION]([methodName, param], streams) {
 				const abortController = new AbortController();
@@ -212,6 +233,7 @@ module.exports = (methods, logger) => {
 				invokeMethod(ctx, methodName, param, streams, () => {
 					notifications.delete(abortController);
 				});
+				heartbeat.reset();
 			},
 			[M.CANCELLATION]([requestId]) {
 				const abortController = requests.get(requestId);

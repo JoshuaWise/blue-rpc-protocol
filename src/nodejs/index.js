@@ -3,7 +3,8 @@ require('./stream');
 const https = require('https');
 const { URL } = require('url');
 const { WebSocket, WebSocketServer } = require('ws');
-const ScratchClient = require('./client');
+const ScratchClient = require('../common/client');
+const ScratchConnection = require('./connection');
 const createServerHandler = require('./create-server-handler');
 const normalizeServerOptions = require('./normalize-server-options');
 const normalizeClientOptions = require('./normalize-client-options');
@@ -55,8 +56,8 @@ exports.listen = async (options) => {
 	return wsServer;
 };
 
-// Connects to a Scratch-RPC WebSocket server and returns a ScratchClient.
-exports.connect = async (url, options) => {
+// Creates a Scratch-RPC WebSocket client.
+exports.createClient = (url, options) => {
 	if (typeof url !== 'string' && !(url instanceof URL)) {
 		throw new TypeError('Expected "url" argument to be a string or URL object');
 	}
@@ -65,35 +66,40 @@ exports.connect = async (url, options) => {
 	}
 
 	options = normalizeClientOptions(options);
-	const socket = new WebSocket(url, [], {
-		maxPayload: options.maxPayload,
-		perMessageDeflate: options.perMessageDeflate,
-		...options.httpOpts,
-	});
 
-	// Wait for the WebSocket to be connected.
-	await new Promise((resolve, reject) => {
-		let timeoutErr;
-		const timer = setTimeout(() => {
-			timeoutErr = new Error('Opening handshake has timed out');
-			socket.terminate();
-		}, 1000 * 20);
+	const connect = async () => {
+		const socket = new WebSocket(url, [], {
+			maxPayload: options.maxPayload,
+			perMessageDeflate: options.perMessageDeflate,
+			...options.httpOpts,
+		});
 
-		const onOpen = () => {
-			clearTimeout(timer);
-			socket.removeListener('open', onOpen);
-			socket.removeListener('error', onError);
-			resolve();
-		};
-		const onError = (err) => {
-			clearTimeout(timer);
-			socket.removeListener('open', onOpen);
-			socket.removeListener('error', onError);
-			reject(timeoutErr || err);
-		};
-		socket.on('open', onOpen);
-		socket.on('error', onError);
-	});
+		// Wait for the WebSocket to be connected.
+		await new Promise((resolve, reject) => {
+			let timeoutErr;
+			const timer = setTimeout(() => {
+				timeoutErr = new Error('WebSocket handshake timed out');
+				socket.terminate();
+			}, 1000 * 10);
 
-	return new ScratchClient(socket);
+			const onOpen = () => {
+				clearTimeout(timer);
+				socket.removeListener('open', onOpen);
+				socket.removeListener('error', onError);
+				resolve();
+			};
+			const onError = (err) => {
+				clearTimeout(timer);
+				socket.removeListener('open', onOpen);
+				socket.removeListener('error', onError);
+				reject(timeoutErr || err);
+			};
+			socket.on('open', onOpen);
+			socket.on('error', onError);
+		});
+
+		return new ScratchConnection(socket);
+	};
+
+	return new ScratchClient(connect);
 };

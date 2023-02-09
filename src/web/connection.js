@@ -1,16 +1,14 @@
 'use strict';
-const WebSocket = require('ws');
 const StreamSender = require('../common/stream-sender');
 const StreamReceiver = require('../common/stream-receiver');
 const destroyAllStreams = require('../common/destroy-all-streams');
 const createIncrementor = require('../common/create-incrementor');
 const parseMessage = require('../common/parse-message');
-const Heartbeat = require('../common/heartbeat');
 const Encoder = require('../common/encoder');
 const Stream = require('../common/stream');
 const M = require('../common/message');
 
-module.exports = class ScratchClient {
+module.exports = class ScratchConnection extends EventTarget {
 	constructor(socket) {
 		if (!(socket instanceof WebSocket)) {
 			throw new TypeError('Expected first argument to be a WebSocket');
@@ -19,36 +17,22 @@ module.exports = class ScratchClient {
 			throw new TypeError('Expected WebSocket to be in the OPEN state');
 		}
 
-		let error;
-		const closed = createDeferred();
+		super();
+		let error = null;
 		const getRequestId = createIncrementor();
-		const heartbeat = new Heartbeat(onHeartbeat);
 		const encoder = new Encoder();
 		const requests = new Map();
 		const sentStreams = new Map();
 		const receivedStreams = new Map();
 
-		function onHeartbeat(isAlive) {
-			if (isAlive) {
-				socket.ping();
-			} else {
-				if (!error) {
-					error = new Error('Scratch-RPC: heartbeat failure');
-					error.code = 1006;
-				}
-				socket.close(1001, 'Connection timed out');
-				socket.terminate();
-			}
-		}
-
 		function sendStreams(streams) {
 			for (const [streamId, stream] of streams) {
 				sentStreams.set(streamId, new StreamSender(stream, encoder, {
-					onData: (data) => {
+					onData: (data, cb) => {
 						if (sentStreams.has(streamId)) {
 							socket.send(encoder.encodeInert(
 								[M.STREAM_CHUNK_DATA, streamId, data]
-							));
+							), cb);
 						}
 					},
 					onEnd: () => {
@@ -110,21 +94,12 @@ module.exports = class ScratchClient {
 		}
 
 		socket
-			.on('close', (code, reason) => {
-				if (error) {
-					if (typeof error.code !== 'number') error.code = code || 1005;
-					if (typeof error.reason !== 'string') error.reason = reason || '';
-					closed.reject(error);
-				} else if (code !== 1000 && code !== 1001) {
-					error = new Error('WebSocket closed unexpectedly');
-					error.code = code || 1005;
-					error.reason = reason || '';
-					closed.reject(error);
-				} else {
-					closed.resolve();
-				}
-				for (const abortController of requests.values()) {
-					abortController.abort();
+			.addEventListener('close', ({ code, reason }) => {
+				this.dispatchEvent(
+					Object.assign(new Event('close'), { error, code, reason })
+				);
+				for (const resolver of requests.values()) {
+					resolver.reject(new Error('Scratch-RPC: WebSocket disconnected'));
 				}
 				for (const sender of sentStreams.values()) {
 					sender.cancel();
@@ -135,20 +110,11 @@ module.exports = class ScratchClient {
 				requests.clear();
 				sentStreams.clear();
 				receivedStreams.clear();
-				heartbeat.stop();
 			})
-			.on('error', (err) => {
-				error = error || err;
+			.addEventListener('error', () => {
+				error = error || new Error('WebSocket error occurred');
 			})
-			.on('ping', () => {
-				heartbeat.reset();
-			})
-			.on('pong', () => {
-				heartbeat.reset();
-			})
-			.on('message', (rawMsg) => {
-				heartbeat.reset();
-
+			.addEventListener('message', ({ data: rawMsg }) => {
 				let msgType, msg, streams;
 				try {
 					[msgType, msg, streams] = parseMessage(
@@ -252,8 +218,9 @@ module.exports = class ScratchClient {
 								reject(abortSignal.reason);
 								socket.send(encoder.encodeInert([M.CANCELLATION, requestId]));
 							}
-							for (const stream of result.streams) {
-								Stream.error(abortSignal.reason);
+							for (const streamId of result.streams.keys()) {
+								const sender = sentStreams.get(streamId);
+								if (sender) sender.cancel(abortSignal.reason);
 							}
 						});
 					}
@@ -275,46 +242,22 @@ module.exports = class ScratchClient {
 				sendStreams(result.streams);
 			},
 
-			close(err) {
-				if (err instanceof Error) {
-					error = error || err;
-					socket.close(err.code, err.reason);
-				} else {
-					socket.close(1000, 'Normal closure');
-				}
-				return closed.promise;
+			close(code, reason) {
+				socket.close(code, reason);
 			},
 
-			terminate(err) {
-				this.close(err);
-				socket.terminate();
-				return closed.promise;
+			get isOpen() {
+				return socket.readyState === WebSocket.OPEN;
 			},
 
-			get closed() {
-				return closed.promise;
-			},
-
-			get readyState() {
-				return socket.readyState;
+			get isOld() {
+				// We can't read "ping" frames in the browser,
+				// so we have no choice but to be optimistic.
+				return false;
 			},
 		});
 	}
 };
-
-module.exports.CONNECTING = 0;
-module.exports.OPEN = 1;
-module.exports.CLOSING = 2;
-module.exports.CLOSED = 3;
-
-function createDeferred() {
-	let resolve, reject;
-	const promise = new Promise((res, rej) => {
-		resolve = res;
-		reject = rej;
-	});
-	return { promise, resolve, reject };
-}
 
 // TODO: we dont actually want to expose the "expose" property
 function normalizeError(err) {
