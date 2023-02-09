@@ -135,13 +135,6 @@ module.exports = (methods, logger) => {
 				const receiver = receivedStreams.get(streamId);
 				if (receiver && !Stream.isLocked(stream)) {
 					receiver.error(new Error('Scratch-RPC: Stream unused'));
-					// TODO: this socket.send wouldn't be necessary if StreamReceiver
-					// called its own OnDestroy callback for end/error closures
-					// (it currently only does for cancels, but Node does it for everything)
-					// Also, without proper cleanup, I would need to delete from receivedStreams too
-					socket.send(encoder.encodeInert(
-						[M.STREAM_CANCELLATION, streamId]
-					));
 				}
 			}
 		}

@@ -8,7 +8,6 @@ exports.Class = ReadableStream;
 exports.canWriteNull = true;
 exports.isLocked = (stream) => stream.locked;
 exports.isOctetStream = (stream) => controllers.get(stream) instanceof ReadableByteStreamController;
-exports.dontBubbleError = () => {}; // Not relevant in Web Streams
 
 // Used to create a new stream so we can receive it over Scratch-RPC.
 exports.new = (isOctetStream) => {
@@ -29,8 +28,29 @@ exports.new = (isOctetStream) => {
 	return stream;
 };
 
+// Used to populate a stream created by Stream.new().
+exports.populate = (stream, { onResume, onDestroyed }) => {
+	const controller = controllers.get(stream);
+	stream[onPull] = onResume;
+	stream[onCancel] = onDestroyed;
+	return {
+		write: (value) => {
+			controller.enqueue(value);
+			return controller.desiredSize > 0;
+		},
+		end: () => {
+			controller.close();
+			Promise.then().then(onDestroyed);
+		},
+		error: (err) => {
+			controller.error(err);
+			Promise.then().then(onDestroyed);
+		},
+	};
+};
+
 // Used to consume a stream, so we can send it over Scratch-RPC.
-exports.read = (stream, { onData, onEnd, onError, onClose }) => {
+exports.consume = (stream, { onData, onEnd, onError, onClose }) => {
 	onClose = once(onClose);
 
 	const reader = stream.getReader();
@@ -71,17 +91,6 @@ exports.read = (stream, { onData, onEnd, onError, onClose }) => {
 exports.cancel = (stream) => {
 	stream.getReader().cancel().catch(() => {});
 };
-
-// Used only on streams that are being received (i.e., created by Stream.new()).
-exports.write = (stream, value) => {
-	const controller = controllers.get(stream);
-	controller.enqueue(value);
-	return controller.desiredSize > 0;
-};
-exports.end = (stream) => controllers.get(stream).close();
-exports.error = (stream, err) => controllers.get(stream).error(err);
-exports.onResume = (stream, callback) => { stream[onPull] = callback; };
-exports.onDestroyed = (stream, callback) => { stream[onCancel] = callback; };
 
 // Utilities for processing Octet Streams.
 exports.stringToOctets = (str) => textEncoder.encode(str);

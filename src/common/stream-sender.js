@@ -13,19 +13,18 @@ module.exports = class StreamSender {
 		this._chunksSize = 0;
 		this._sentBytes = 0;
 		this._destroyed = false;
-		this._cancel = null;
 
 		const send = (data) => {
 			this._sentBytes += data.byteLength;
 			onData(data, onDrain);
 			if (getBufferedAmount() > HIGH_WATER_MARK) {
-				streamControls.pause();
+				this._streamControls.pause();
 			}
 		};
 
 		const onDrain = () => {
 			if (!this._destroyed && getBufferedAmount() < LOW_WATER_MARK) {
-				streamControls.resume();
+				this._streamControls.resume();
 				if (this._chunksSize) {
 					flushChunks(IDEAL_CHUNK_SIZE);
 				}
@@ -48,7 +47,7 @@ module.exports = class StreamSender {
 			}
 		};
 
-		const streamControls = Stream.read(stream, {
+		this._streamControls = Stream.consume(stream, {
 			onData: (data) => {
 				if (this._isOctets) {
 					if (typeof data === 'string') {
@@ -75,15 +74,16 @@ module.exports = class StreamSender {
 				this._destroyed = true;
 				this._chunks = [];
 				this._chunksSize = 0;
-				this._cancel = () => {};
-				streamControls.cancel(err);
+				this._streamControls.cancel(err);
 				onError(err);
 			},
 			onClose: (err) => {
 				this._destroyed = true;
 				this._chunks = [];
 				this._chunksSize = 0;
-				this._cancel = () => {};
+				this._streamControls.cancel = () => {};
+				this._streamControls.pause = () => {};
+				this._streamControls.resume = () => {};
 				onError(err || new Error('Stream was closed prematurely'));
 				onData = () => {};
 				onEnd = () => {};
@@ -91,12 +91,10 @@ module.exports = class StreamSender {
 				getBufferedAmount = () => 0;
 			},
 		});
-
-		this._cancel = streamControls.cancel;
 	}
 
 	cancel(...reason) {
-		this._cancel(...reason);
+		this._streamControls.cancel(...reason);
 	}
 
 	signal(receivedKiB, availableKiB) {

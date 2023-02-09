@@ -8,7 +8,6 @@ exports.Class = Readable;
 exports.canWriteNull = false; // Node.js streams are weird
 exports.isLocked = (stream) => stream.readableFlowing !== null;
 exports.isOctetStream = (stream) => stream.readableObjectMode !== true;
-exports.dontBubbleError = (stream) => stream.on('error', () => {});
 
 // Used to create a new stream so we can receive it over Scratch-RPC.
 exports.new = (isOctetStream) => {
@@ -26,8 +25,20 @@ exports.new = (isOctetStream) => {
 	return stream;
 };
 
+// Used to populate a stream created by Stream.new().
+exports.populate = (stream, { onResume, onDestroyed }) => {
+	stream[onRead] = onResume;
+	stream[onDestroy] = onDestroyed;
+	stream.on('error', () => {}); // Suppress Unhandled 'error' events
+	return {
+		write: (value) => stream.push(value),
+		end: () => stream.push(null),
+		error: (err) => stream.destroy(err),
+	};
+};
+
 // Used to consume a stream, so we can send it over Scratch-RPC.
-exports.read = (stream, { onData, onEnd, onError, onClose }) => {
+exports.consume = (stream, { onData, onEnd, onError, onClose }) => {
 	stream.on('data', onData);
 	stream.on('end', onEnd);
 	stream.on('error', onError);
@@ -36,7 +47,6 @@ exports.read = (stream, { onData, onEnd, onError, onClose }) => {
 	} else {
 		stream.on('close', () => onClose(stream.errored));
 	}
-
 	return {
 		pause: () => stream.pause(),
 		resume: () => stream.resume(),
@@ -49,13 +59,6 @@ exports.cancel = (stream) => {
 	stream.resume(); // Force isLocked to be true
 	stream.destroy();
 };
-
-// Used only on streams that are being received (i.e., created by Stream.new()).
-exports.write = (stream, value) => stream.push(value);
-exports.end = (stream) => stream.push(null);
-exports.error = (stream, err) => stream.destroy(err);
-exports.onResume = (stream, callback) => { stream[onRead] = callback; };
-exports.onDestroyed = (stream, callback) => { stream[onDestroy] = callback; };
 
 // Utilities for processing Octet Streams.
 exports.stringToOctets = (str) => Buffer.from(str);
