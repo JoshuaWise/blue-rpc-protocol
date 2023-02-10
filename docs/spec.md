@@ -2,11 +2,11 @@
 
 This specification should provide the developer with the information needed to implement the protocol.
 
-## 1 Overview
+## 1. Overview
 
 BlueRPC is a lightweight remote procedure call (RPC) protocol. It runs over a [WebSocket][1] connection and uses [MessagePack][2] for serialization.
 
-## 2 Conventions
+## 2. Conventions
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC 2119][3].
 
@@ -20,7 +20,7 @@ The Client is defined as the initiator of the WebSocket connection, the origin o
 The Server is defined as the acceptor of the WebSocket connection, the origin of Responses, and the handler of Requests.
 A Peer is either a Client or a Server.
 
-## 3 Message framing
+## 3. Message framing
 
 BlueRPC works by sending WebSocket messages between Peers. Some messages represent RPC requests and responses, while others are used for internal mechanisms such as handling streams.
 
@@ -34,7 +34,7 @@ Every message in BlueRPC MUST be sent in a WebSocket binary frame. If a Peer rec
 
 If a Peer receives a MessagePack type that is not recognized by this specification, it is RECOMMENDED to close the WebSocket connection with a status code of "1008", but it MAY instead choose some implementation-specific or application-specific handling.
 
-## 4 Request message
+## 4. Request message
 
 An RPC call is represented by sending a Request message from the Client to the Server, across the WebSocket connection.
 
@@ -51,7 +51,7 @@ When a Server receives a Request, it MUST reply with a Response message containi
 
 If a Client receives a Request, it SHOULD close the WebSocket connection with a status code of "1008".
 
-### 4.1 Notification message
+### 4.1. Notification message
 
 A Notification is a special kind of Request that has no Request ID. A Notification is serialized as an Array with these three elements:
 
@@ -63,7 +63,7 @@ Notifications are used to invoke methods without expecting a response. This is u
 
 A Server MUST NOT send a Response in reply to a Notification.
 
-## 5 Response message
+## 5. Response message
 
 When an RPC call is made, the Server MUST reply by sending a Response, unless the call was a Notification. When the Server sends a Response, it MUST remove the associated Request ID from its set of "open Request IDs".
 
@@ -87,7 +87,7 @@ If a Client receives a Response, it MUST remove the associated Request ID from t
 
 If a Server receives a Response, it SHOULD close the WebSocket connection with a status code of "1008".
 
-## 6 Cancellation message
+## 6. Cancellation message
 
 Clients SHOULD have the ability to "cancel" an RPC call that they initiated. If a Client decides to cancel an RPC call, its Request ID MUST immediately be removed from the set of "open Request IDs".
 
@@ -104,7 +104,7 @@ When a Client cancels an RPC call, it is RECOMMENDED that implementations also c
 
 If a Client receives a Cancellation, it SHOULD close the WebSocket connection with a status code of "1008".
 
-## 7 Stream
+## 7. Stream
 
 It's useful to be able to send octet streams of unknown length. It's particularly useful when large amounts of data can be sent in small pieces that can be processed on-the-fly, to reduce memory consumption. Also, it's useful for "publish-subscribe" mechanisms to have the concept of a data channel which has a beginning and (potentially) an end. With these goals in mind, BlueRPC defines the Stream extension type for MessagePack.
 
@@ -122,7 +122,7 @@ When a Peer sends a Stream, they MUST store its associated Stream ID within a se
 
 Deserializers MUST ignore bytes 6-8 and the seven unused bits of byte 5. That space is reserved for future versions of this specification.
 
-### 7.1 Stream Chunk message
+### 7.1. Stream Chunk message
 
 After a Peer sends a Stream, it SHOULD send one or more associated Stream Chunk messages across the same WebSocket connection. Stream Chunks provide the actual data represented by the Stream.
 
@@ -151,7 +151,7 @@ A Stream MAY be "empty", which means it has no associated non-Final Stream Chunk
 
 If a Stream is *not* an Octet Stream, the user which reads the Stream contents MUST receive each value exactly as they were sent in each Stream Chunk. However, Octet Streams are more lenient: the user MAY receive the Stream's octets in slices that differ from the slices that were delivered by the Stream Chunks, as long as the total concatenation of all slices remains unchanged.
 
-### 7.2 Stream Cancellation message
+### 7.2. Stream Cancellation message
 
 Users SHOULD have the ability to "cancel" a Stream that they received. If a user decides to cancel such a Stream, its Stream ID MUST immediately be removed from the set of "received Stream IDs".
 
@@ -170,7 +170,7 @@ When a Peer receives a WebSocket message that it must ignore, there is a possibi
 - Server receives a Request for a method that is not implemented (see section 5).
 - Peer receives a message that is an Array whose first element is an Integer not defined by this specification (see section 3).
 
-### 7.3 Stream Signal message
+### 7.3. Stream Signal message
 
 Stream Signal messages are sent by the receiver of a Stream to provide hints for the Stream's sender to operate more efficiently. This process is often referred to as "flow control" or "backpressure".
 
@@ -189,23 +189,23 @@ After a Peer sends a Stream Cancellation *or* receives a Final Stream Chunk, it 
 
 When a Peer receives a Stream, it MAY choose to immediately reply with a Stream Cancellation. In such cases, the Peer is not required to send a Stream Signal as it normally would.
 
-## 8 Error
+## 8. Error
 
 It's useful to have a consistent way of representing application errors. To that end, BlueRPC defines the Error extension type for MessagePack.
 
 The Error extension type MUST be assigned to the extension type "1". Serializers MUST encode its "data segment" as a Map with at least one String key called "message" whose value is a String. The Map MAY have other key-value pairs.
 
-## 9 WebSocket handling
+## 9. WebSocket handling
 
 A BlueRPC connection inherits the same lifecycle as the underlying WebSocket connection. Therefore, a BlueRPC connection is established the moment a WebSocket connection is successfully established, and a BlueRPC connection is considered "closed" the moment its underlying WebSocket connection is considered "closed".
 
 If a Peer closes a BlueRPC connection without error, they SHOULD use the status code "1000" or "1001".
 
-### 8.1 WebSocket compression
+### 8.1. WebSocket compression
 
 It is RECOMMENDED for BlueRPC Server and Client implementations to support the [permessage-deflate][4] WebSocket extension. It is RECOMMENDED that this extension is enabled by default, with default extension parameters that are appropriate for the implementation's use-cases.
 
-### 8.2 WebSocket payload limits
+### 8.2. WebSocket payload limits
 
 Implementations MAY enforce a limit on the size of individual WebSocket messages that they receive, to limit memory consumption. However, implementations MUST support receiving WebSocket messages at least 256 KiB in size.
 
@@ -213,7 +213,7 @@ When sending Stream Chunks associated with an Octet Stream, Peers SHOULD limit t
 
 If a Peer receives a message whose size exceeds their supported limit, they SHOULD close the WebSocket connection with a status code of "1009".
 
-### 8.3 WebSocket timeouts and heartbeats
+### 8.3. WebSocket timeouts and heartbeats
 
 BlueRPC defines a heartbeat mechanism for automatically closing hanging connections. Implementations MUST configure three variables for controlling these timeouts (whether or not these variables are configurable by the user is OPTIONAL):
 
