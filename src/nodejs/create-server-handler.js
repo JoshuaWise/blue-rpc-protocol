@@ -134,7 +134,7 @@ module.exports = (methods, logger) => {
 			for (const [streamId, stream] of streams) {
 				const receiver = receivedStreams.get(streamId);
 				if (receiver && !Stream.isLocked(stream)) {
-					receiver.error(new Error('Scratch-RPC: Stream unused'));
+					receiver.error(new Error('BlueRPC: Stream unused'));
 				}
 			}
 		}
@@ -165,7 +165,7 @@ module.exports = (methods, logger) => {
 					sender.cancel();
 				}
 				for (const receiver of receivedStreams.values()) {
-					receiver.error(new Error('Scratch-RPC: WebSocket disconnected'));
+					receiver.error(new Error('BlueRPC: WebSocket disconnected'));
 				}
 				requests.clear();
 				notifications.clear();
@@ -204,7 +204,7 @@ module.exports = (methods, logger) => {
 				if (handler) {
 					handler(msg, streams);
 				} else {
-					logger('Socket[%s] received unknown Scratch-RPC message', socketId);
+					logger('Socket[%s] received unknown BlueRPC message', socketId);
 					discardStreams(streams);
 				}
 			});

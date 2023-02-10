@@ -9,7 +9,7 @@ exports.canWriteNull = true;
 exports.isLocked = (stream) => stream.locked;
 exports.isOctetStream = (stream) => controllers.get(stream) instanceof ReadableByteStreamController;
 
-// Used to create a new stream so we can receive it over Scratch-RPC.
+// Used to create a new stream so we can receive it over BlueRPC.
 exports.new = (isOctetStream) => {
 	let controller;
 	const stream = new ReadableStream({
@@ -49,7 +49,7 @@ exports.populate = (stream, { onResume, onDestroyed }) => {
 	};
 };
 
-// Used to consume a stream, so we can send it over Scratch-RPC.
+// Used to consume a stream, so we can send it over BlueRPC.
 exports.consume = (stream, { onData, onEnd, onError, onClose }) => {
 	onClose = once(onClose);
 

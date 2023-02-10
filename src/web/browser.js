@@ -1,9 +1,9 @@
 'use strict';
 require('./stream');
-const ScratchClient = require('../common/client');
-const ScratchConnection = require('./connection');
+const BlueClient = require('../common/client');
+const BlueConnection = require('./connection');
 
-// Creates a Scratch-RPC WebSocket client.
+// Creates a BlueRPC WebSocket client.
 exports.createClient = (url, options) => {
 	if (typeof url !== 'string' && !(url instanceof URL)) {
 		throw new TypeError('Expected "url" argument to be a string or URL object');
@@ -40,8 +40,8 @@ exports.createClient = (url, options) => {
 			socket.addEventListener('error', onError);
 		});
 
-		return new ScratchConnection(socket);
+		return new BlueConnection(socket);
 	};
 
-	return new ScratchClient(connect);
+	return new BlueClient(connect);
 };

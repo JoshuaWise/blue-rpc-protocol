@@ -3,11 +3,11 @@ const openConnections = Symbol('openConnections');
 const getConnection = Symbol('getConnection');
 
 /*
-	A Scratch-RPC client. It re-uses the same connection as much as possible,
+	A BlueRPC client. It re-uses the same connection as much as possible,
 	but automatically creates new connections as necessary.
  */
 
-module.exports = class ScratchClient {
+module.exports = class BlueClient {
 	constructor(connect) {
 		// Keep track of open connections, so we can close them on-demand.
 		this[openConnections] = new Set();
@@ -46,7 +46,7 @@ module.exports = class ScratchClient {
 		try {
 			return await new Promise((resolve, reject) => {
 				onClose = ({ error, code, reason }) => {
-					error = error || new Error('Scratch-RPC: WebSocket disconnected');
+					error = error || new Error('BlueRPC: WebSocket disconnected');
 					error.code = code;
 					error.reason = reason;
 					reject(err);

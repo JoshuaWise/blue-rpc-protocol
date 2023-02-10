@@ -1,12 +1,12 @@
 {
-  "name": "scratch-rpc",
+  "name": "blue-rpc",
   "version": "1.0.0",
-  "description": "A WebSockets RPC protocol/library with useful features",
+  "description": "A simple but powerful RPC protocol that uses WebSockets and MessagePack",
   "author": "Joshua Wise <joshuathomaswise@gmail.com>",
-  "homepage": "http://github.com/JoshuaWise/scratch-rpc",
+  "homepage": "http://github.com/JoshuaWise/blue-rpc",
   "repository": {
     "type": "git",
-    "url": "git://github.com/JoshuaWise/scratch-rpc.git"
+    "url": "git://github.com/JoshuaWise/blue-rpc.git"
   },
   "license": "MIT",
   "main": "src/nodejs/index.js",

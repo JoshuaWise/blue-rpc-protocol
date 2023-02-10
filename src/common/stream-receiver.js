@@ -77,7 +77,7 @@ module.exports = class StreamReceiver {
 				value = parseStream(data, this._encoder);
 			} catch (err) {
 				this._onCancellation(err);
-				this.error(new Error(`Scratch-RPC: ${err.message}`));
+				this.error(new Error(`BlueRPC: ${err.message}`));
 				return;
 			}
 			if (Stream.canWriteNull || value !== null) {

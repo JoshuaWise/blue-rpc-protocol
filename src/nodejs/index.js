@@ -3,14 +3,14 @@ require('./stream');
 const https = require('https');
 const { URL } = require('url');
 const { WebSocket, WebSocketServer } = require('ws');
-const ScratchClient = require('../common/client');
-const ScratchConnection = require('./connection');
+const BlueClient = require('../common/client');
+const BlueConnection = require('./connection');
 const createServerHandler = require('./create-server-handler');
 const normalizeServerOptions = require('./normalize-server-options');
 const normalizeClientOptions = require('./normalize-client-options');
 const getIPs = require('./get-ips');
 
-// Starts a Scratch-RPC WebSocket server, implementing the given methods.
+// Starts a BlueRPC WebSocket server, implementing the given methods.
 exports.listen = async (options) => {
 	options = normalizeServerOptions(options);
 
@@ -56,7 +56,7 @@ exports.listen = async (options) => {
 	return wsServer;
 };
 
-// Creates a Scratch-RPC WebSocket client.
+// Creates a BlueRPC WebSocket client.
 exports.createClient = (url, options) => {
 	if (typeof url !== 'string' && !(url instanceof URL)) {
 		throw new TypeError('Expected "url" argument to be a string or URL object');
@@ -98,8 +98,8 @@ exports.createClient = (url, options) => {
 			socket.on('error', onError);
 		});
 
-		return new ScratchConnection(socket);
+		return new BlueConnection(socket);
 	};
 
-	return new ScratchClient(connect);
+	return new BlueClient(connect);
 };

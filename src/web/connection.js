@@ -8,7 +8,7 @@ const Encoder = require('../common/encoder');
 const Stream = require('../common/stream');
 const M = require('../common/message');
 
-module.exports = class ScratchConnection extends EventTarget {
+module.exports = class BlueConnection extends EventTarget {
 	constructor(socket) {
 		if (!(socket instanceof WebSocket)) {
 			throw new TypeError('Expected first argument to be a WebSocket');
@@ -67,7 +67,7 @@ module.exports = class ScratchConnection extends EventTarget {
 							));
 						}
 						if (err) {
-							error = error || new Error(`Scratch-RPC: ${err.message}`);
+							error = error || new Error(`BlueRPC: ${err.message}`);
 							socket.close(err.code, err.reason);
 						}
 					},
@@ -99,13 +99,13 @@ module.exports = class ScratchConnection extends EventTarget {
 					Object.assign(new Event('close'), { error, code, reason })
 				);
 				for (const resolver of requests.values()) {
-					resolver.reject(new Error('Scratch-RPC: WebSocket disconnected'));
+					resolver.reject(new Error('BlueRPC: WebSocket disconnected'));
 				}
 				for (const sender of sentStreams.values()) {
 					sender.cancel();
 				}
 				for (const receiver of receivedStreams.values()) {
-					receiver.error(new Error('Scratch-RPC: WebSocket disconnected'));
+					receiver.error(new Error('BlueRPC: WebSocket disconnected'));
 				}
 				requests.clear();
 				sentStreams.clear();
@@ -121,7 +121,7 @@ module.exports = class ScratchConnection extends EventTarget {
 						rawMsg, encoder, handlers, receivedStreams
 					);
 				} catch (err) {
-					error = error || new Error(`Scratch-RPC: ${err.message}`);
+					error = error || new Error(`BlueRPC: ${err.message}`);
 					socket.close(err.code, err.reason);
 					return;
 				}

@@ -2,7 +2,7 @@
 const Message = require('./message');
 
 /*
-	Returns whether the given message is a valid Scratch-RPC message.
+	Returns whether the given message is a valid BlueRPC message.
  */
 
 module.exports = (msg) => {

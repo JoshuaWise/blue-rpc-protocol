@@ -1,20 +1,18 @@
 # API
 
-- [function `listen`](#scratchrpclistenoptions)
-- [function `createClient`](#scratchrpccreateclienturl-options)
-- [class `ScratchClient`][ScratchClient]
-	- [`client.invoke(methodName, param)`](#clientinvokemethodname-param-abortsignal)
+- [function `listen`](#bluerpclistenoptions)
+- [function `createClient`](#bluerpccreateclienturl-options)
+- [class `BlueClient`][BlueClient]
+	- [`client.invoke(methodName, param[, abortSignal])`](#clientinvokemethodname-param-abortsignal)
 	- [`client.notify(methodName, param)`](#clientnotifymethodname-param)
-	- [`client.listen(methods)`](#clientlisten-methods)
-	- [`client.close([error])`](#clientcloseerror)
-	- [`client.terminate([error])`](#clientterminateerror)
-	- [`client.closed`](#clientclosed)
+	- [`client.cancel()`](#clientcancel)
 - [class `MethodContext`][MethodContext]
-	- [`context.notify(methodName, param)`](#contextnotifymethodname-param)
-	- [`context.broadcast(methodName, param)`](#contextbroadcastmethodname-param)
+	- [`context.signal`](#contextsignal)
+	- [`context.isAborted`](#contextisaborted)
 	- [`context.isNotification`](#contextisnotification)
+	- [`context.connection`](#contextconnection)
 
-### ScratchRPC.listen(options)
+### BlueRPC.listen(options)
 
 - `options` [<Object>][Object]
 	- `server` [<http.Server>][HTTPServer] an HTTP or HTTPS server instance to attach to.
@@ -26,15 +24,15 @@
 	- Any option allowed in [`server.listen()`](https://nodejs.org/api/net.html#serverlistenoptions-callback).
 - Returns: [<Promise][Promise][<WebSocketServer>][WebSocketServer][>][Promise]
 
-Creates and starts a [WebSocketServer](https://github.com/websockets/ws/blob/master/doc/ws.md#class-websocketserver) that uses Scratch-RPC to serve the given `methods`. By default, port `80` is used for [http.Servers][HTTPServer] and port `443` is used for [https.Servers][HTTPSServer], but you can pass any custom `port` you like.
+Creates and starts a [WebSocketServer](https://github.com/websockets/ws/blob/master/doc/ws.md#class-websocketserver) that uses BlueRPC to serve the given `methods`. By default, port `80` is used for [http.Servers][HTTPServer] and port `443` is used for [https.Servers][HTTPSServer], but you can pass any custom `port` you like.
 
-All RPC methods will receive a [MethodContext][MethodContext] as their second parameter, which exposes metadata about the invocation.
+All RPC methods will receive a [MethodContext][MethodContext] as their second parameter, which exposes metadata about the invocation. If an RPC method returns without using a stream that was sent by the client, such streams will automatically be cleaned up. Therefore, resource management is handled automatically for you.
 
 The returned promise will not resolve until the server is ready to accept connections.
 
 ##### Configuring `perMessageDeflate`
 
-Although compression can greatly reduce bandwidth usage, it also has significant CPU and memory costs. Usually these costs don't become a bottleneck unless you are processing thousands of messages per second (on a typical workstation in 2023). Usually, if you are processing that many messages per second, each message is so small that bandwidth is not even an issue. This is the rationale that led to the current default setting, which only compresses messages at least 8 KiB in size. It is a compromise that tries to minimize CPU and memory costs while still using compression in cases where you are likely to benefit from it.
+Although compression can greatly reduce bandwidth usage, it also has real CPU and memory costs. Usually these costs don't become a bottleneck unless you are processing thousands of messages per second (on a typical workstation in 2023). Usually, if you are processing that many messages per second, each message is so small that bandwidth is not even an issue. This is the rationale that led to the current default setting, which only compresses messages at least 8 KiB in size. It is a compromise that tries to minimize CPU and memory costs while still using compression in cases where you are likely to benefit from it.
 
 However, if you are sending a large number of *small* messages (below 8 KiB) and you want to hyper-optimize for low bandwidth usage (at the cost of higher CPU and memory consumpton), you can use the following `perMessageDeflate` settings:
 
@@ -46,20 +44,20 @@ const perMessageDeflate = {
 };
 ```
 
-### ScratchRPC.createClient(url[, options])
+### BlueRPC.createClient(url[, options])
 
-- `url` [<string>][string] The URL of the Scratch-RPC server to connect to.
+- `url` [<string>][string] The URL of the BlueRPC server to connect to.
 - `options` [<Object>][Object]
 	- `maxPayload` [<number>][number] The maximum accepted size of incoming WebSocket messages (in bytes). **Default:** `1048576` (1 MiB).
 	- `perMessageDeflate` [<Object>][Object] | [<boolean>][boolean] Passed to the underling [WebSocket][WebSocket] to configure automatic [message compression](https://www.rfc-editor.org/rfc/rfc7692#section-7). **Default:** Enabled for messages at least `8192` bytes (8 KiB) in size.
 	- Any option allowed in [`http.request()`](https://nodejs.org/api/http.html#httprequesturl-options-callback) or [`https.request()`](https://nodejs.org/api/https.html#httpsrequesturl-options-callback).
-- Returns: [<ScratchClient>][ScratchClient]
+- Returns: [<BlueClient>][BlueClient]
 
-Creates a Scratch-RPC client and connects to the specified server. In the browser, all options are ignored.
+Creates a BlueRPC client and connects to the specified server. In the browser, all options are ignored.
 
-# class *ScratchClient*
+# class *BlueClient*
 
-This class represents a Scratch-RPC client. It allows you to invoke methods on a remote Scratch-RPC server.
+This class represents a BlueRPC client. It allows you to invoke methods on a remote BlueRPC server.
 
 ### client.invoke(methodName, param[, abortSignal])
 
@@ -70,13 +68,15 @@ This class represents a Scratch-RPC client. It allows you to invoke methods on a
 
 Invokes a method on the remote server and returns a [Promise][Promise] that will resolve with the method's result. If the method throws an exception, the promise will be rejected with the error.
 
+If you pass an [AbortSignal][AbortSignal], you'll be able to cancel the RPC call. If you cancel an RPC call, the streams you sent will automatically be destroyed, and the promise will be rejected with an `AbortError`.
+
 ### client.notify(methodName, param)
 
 - `methodName` [<string>][string] The name of the remote method to invoke.
 - `param` [<any>][any] The value to send to the remote method.
 - Returns: [<Promise][Promise][<undefined>][undefined][>][Promise]
 
-This is the same as [client.invoke()](#clientinvokemethodname-param-abortsignal) except that it returns nothing and it cannot be aborted. In Scratch-RPC, notifications are a way of invoking remote methods without needing an RPC response. The returned promise resolves as soon as the notification is successfully sent.
+This is the same as [client.invoke()](#clientinvokemethodname-param-abortsignal) except that it returns nothing and it cannot be aborted. In BlueRPC, notifications are a way of invoking remote methods without needing an RPC response. The returned promise resolves as soon as the notification is successfully sent.
 
 ### client.cancel()
 
@@ -133,5 +133,5 @@ An object containing info about the underling connection. This object is shared 
 [HTTPSServer]: https://nodejs.org/api/https.html#class-httpsserver
 [WebSocketServer]: https://github.com/websockets/ws/blob/master/doc/ws.md#class-websocketserver
 [WebSocket]: https://github.com/websockets/ws/blob/master/doc/ws.md#new-websocketaddress-protocols-options
-[ScratchClient]: #class-scratchclient
+[BlueClient]: #class-blueclient
 [MethodContext]: #class-methodcontext

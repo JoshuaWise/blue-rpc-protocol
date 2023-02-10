@@ -9,7 +9,7 @@ const CLIENT_COMPRESSION = {
 	concurrencyLimit: 5,
 };
 
-// Validates and normalizes the options expected by ScratchRPC.createClient().
+// Validates and normalizes the options expected by BlueRPC.createClient().
 module.exports = ({ ...options } = {}) => {
 	const {
 		maxPayload,

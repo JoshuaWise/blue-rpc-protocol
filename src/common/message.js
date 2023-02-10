@@ -1,7 +1,7 @@
 'use strict';
 
 /*
-	An enum containing each message type in Scratch-RPC.
+	An enum containing each message type in BlueRPC.
  */
 
 module.exports = {

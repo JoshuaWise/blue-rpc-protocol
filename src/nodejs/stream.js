@@ -9,7 +9,7 @@ exports.canWriteNull = false; // Node.js streams are weird
 exports.isLocked = (stream) => stream.readableFlowing !== null;
 exports.isOctetStream = (stream) => stream.readableObjectMode !== true;
 
-// Used to create a new stream so we can receive it over Scratch-RPC.
+// Used to create a new stream so we can receive it over BlueRPC.
 exports.new = (isOctetStream) => {
 	const stream = new Readable({
 		autoDestroy: true,
@@ -37,7 +37,7 @@ exports.populate = (stream, { onResume, onDestroyed }) => {
 	};
 };
 
-// Used to consume a stream, so we can send it over Scratch-RPC.
+// Used to consume a stream, so we can send it over BlueRPC.
 exports.consume = (stream, { onData, onEnd, onError, onClose }) => {
 	stream.on('data', onData);
 	stream.on('end', onEnd);

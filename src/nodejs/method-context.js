@@ -1,7 +1,7 @@
 'use strict';
 
 /*
-	Exposes metadata about a Scratch-RPC method invocation.
+	Exposes metadata about a BlueRPC method invocation.
  */
 
 module.exports = class MethodContext {

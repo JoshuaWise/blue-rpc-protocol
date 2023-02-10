@@ -13,7 +13,7 @@ const SERVER_COMPRESSION = {
 	concurrencyLimit: 5,
 };
 
-// Validates and normalizes the options expected by ScratchRPC.listen().
+// Validates and normalizes the options expected by BlueRPC.listen().
 module.exports = ({ ...options } = {}) => {
 	const {
 		server,

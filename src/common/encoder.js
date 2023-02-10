@@ -5,9 +5,9 @@ const Stream = require('./stream');
 
 /*
 	The Encoder is used to encode and decode MessagePack data, while supporting
-	the extension types defined by Scratch-RPC (Stream and Error). Encoded
-	streams are automatically assigned an incremented ID. Also, it returns info
-	to callers about the streams that were encoded or decoded.
+	the extension types defined by BlueRPC (Stream and Error). Encoded streams
+	are automatically assigned an incremented ID. Also, it returns info to
+	callers about the streams that were encoded or decoded.
  */
 
 module.exports = class Encoder {

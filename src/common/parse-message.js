@@ -4,7 +4,7 @@ const validateMessage = require('./validate-message');
 
 /*
 	Parses a raw WebSocket message and validates all requirements by
-	Scratch-RPC, throwing an error if there was a problem.
+	BlueRPC, throwing an error if there was a problem.
  */
 
 module.exports = (rawMsg, encoder, allowedMessageTypes, streamIds, requestIds) => {
@@ -26,7 +26,7 @@ module.exports = (rawMsg, encoder, allowedMessageTypes, streamIds, requestIds) =
 		throw createError({
 			code: 1008,
 			reason: err.msgpackExtensionType ? err.message : 'Invalid MessagePack',
-			message: `received invalid MessagePack (${err.message})`,
+			message: `received invalid MessagePack: ${err.message}`,
 		});
 	}
 
@@ -35,7 +35,7 @@ module.exports = (rawMsg, encoder, allowedMessageTypes, streamIds, requestIds) =
 		throw createError({
 			code: 1008,
 			reason: 'Invalid message',
-			message: 'received invalid Scratch-RPC message',
+			message: 'received invalid BlueRPC message',
 		});
 	}
 
@@ -80,7 +80,7 @@ module.exports.parseStream = (rawData, encoder) => {
 		throw createError({
 			code: 1008,
 			reason: err.msgpackExtensionType ? err.message : 'Invalid MessagePack',
-			message: `received invalid MessagePack (${err.message})`,
+			message: `received invalid MessagePack: ${err.message}`,
 		});
 	}
 	if (streams.size) {
