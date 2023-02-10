@@ -3,6 +3,10 @@ require('./stream');
 const BlueClient = require('../common/client');
 const BlueConnection = require('./connection');
 
+exports.listen = () => {
+	throw new TypeError('Cannot create a BlueRPC server in the browser');
+};
+
 // Creates a BlueRPC WebSocket client.
 exports.createClient = (url, options) => {
 	if (typeof url !== 'string' && !(url instanceof URL)) {
