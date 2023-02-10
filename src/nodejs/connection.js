@@ -28,10 +28,19 @@ module.exports = class ScratchConnection extends EventTarget {
 		const requests = new Map();
 		const sentStreams = new Map();
 		const receivedStreams = new Map();
+		updateRef();
 
 		function onTimeout() {
 			socket.close(1001, 'Connection timed out');
 			socket.terminate();
+		}
+
+		function updateRef() {
+			if (requests.size || sentStreams.size || receivedStreams.size) {
+				socket._socket.ref();
+			} else {
+				socket._socket.unref();
+			}
 		}
 
 		function sendStreams(streams) {
@@ -49,6 +58,7 @@ module.exports = class ScratchConnection extends EventTarget {
 							socket.send(encoder.encodeInert(
 								[M.STREAM_CHUNK_END, streamId]
 							));
+							updateRef();
 						}
 					},
 					onError: (err) => {
@@ -57,6 +67,7 @@ module.exports = class ScratchConnection extends EventTarget {
 							socket.send(encoder.encodeInert(
 								[M.STREAM_CHUNK_ERROR, streamId, normalizeError(err)]
 							));
+							updateRef();
 						}
 					},
 					getBufferedAmount: () => {
@@ -74,6 +85,7 @@ module.exports = class ScratchConnection extends EventTarget {
 							socket.send(encoder.encodeInert(
 								[M.STREAM_CANCELLATION, streamId]
 							));
+							updateRef();
 						}
 						if (err) {
 							error = error || new Error(`Scratch-RPC: ${err.message}`);
@@ -157,6 +169,7 @@ module.exports = class ScratchConnection extends EventTarget {
 					requests.delete(requestId);
 					resolver.resolve(result);
 					receiveStreams(streams);
+					updateRef();
 				} else {
 					discardStreams(streams);
 				}
@@ -167,6 +180,7 @@ module.exports = class ScratchConnection extends EventTarget {
 					requests.delete(requestId);
 					resolver.reject(err);
 					receiveStreams(streams);
+					updateRef();
 				} else {
 					discardStreams(streams);
 				}
@@ -182,6 +196,7 @@ module.exports = class ScratchConnection extends EventTarget {
 				if (receiver) {
 					receivedStreams.delete(streamId);
 					receiver.end();
+					updateRef();
 				}
 			},
 			[M.STREAM_CHUNK_ERROR]([streamId, err]) {
@@ -189,6 +204,7 @@ module.exports = class ScratchConnection extends EventTarget {
 				if (receiver) {
 					receivedStreams.delete(streamId);
 					receiver.error(err);
+					updateRef();
 				}
 			},
 			[M.STREAM_CANCELLATION]([streamId]) {
@@ -196,6 +212,7 @@ module.exports = class ScratchConnection extends EventTarget {
 				if (sender) {
 					sentStreams.delete(streamId);
 					sender.cancel();
+					updateRef();
 				}
 			},
 			[M.STREAM_SIGNAL]([streamId, receivedKiB, availableKiB]) {
@@ -228,11 +245,13 @@ module.exports = class ScratchConnection extends EventTarget {
 					socket.send(result.result);
 					sendStreams(result.streams);
 					requests.set(requestId, { resolve, reject });
+					updateRef();
 					if (abortSignal instanceof AbortSignal) {
 						abortSignal.addEventListener('abort', () => {
 							if (requests.delete(requestId)) {
 								reject(abortSignal.reason);
 								socket.send(encoder.encodeInert([M.CANCELLATION, requestId]));
+								updateRef();
 							}
 							for (const streamId of result.streams.keys()) {
 								const sender = sentStreams.get(streamId);
@@ -256,6 +275,7 @@ module.exports = class ScratchConnection extends EventTarget {
 				}
 				socket.send(result.result);
 				sendStreams(result.streams);
+				updateRef();
 			},
 
 			close(code, reason) {
