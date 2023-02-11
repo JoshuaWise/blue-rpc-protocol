@@ -14,15 +14,15 @@
 
 ### BlueRPC.listen(options)
 
-- `options` [<Object>][Object]
-	- `server` [<http.Server>][HTTPServer] an HTTP or HTTPS server instance to attach to.
-	- `methods` [<Object>][Object] A map of RPC-style methods to serve.
-	- `maxPayload` [<number>][number] The maximum accepted size of incoming WebSocket messages (in bytes). **Default:** `1048576` (1 MiB).
-	- `perMessageDeflate` [<Object>][Object] | [<boolean>][boolean] Passed to the underling [WebSocketServer][WebSocketServer] to configure automatic [message compression](https://www.rfc-editor.org/rfc/rfc7692#section-7). **Default:** Enabled for messages at least `8192` bytes (8 KiB) in size.
-	- `verifyClient` [<Function>][Function] Passed to the underling [WebSocketServer][WebSocketServer] to conditionally accept or reject incoming connections. **Default**: `null`.
-	- `logger` [<Function>][Function] If provided, auto-generated server logs will be passed to this function, for convenience. **Default**: `null`.
+- `options` [&lt;Object&gt;][Object]
+	- `server` [&lt;http.Server&gt;][HTTPServer] an HTTP or HTTPS server instance to attach to.
+	- `methods` [&lt;Object&gt;][Object] A map of RPC-style methods to serve.
+	- `maxPayload` [&lt;number&gt;][number] The maximum accepted size of incoming WebSocket messages (in bytes). **Default:** `1048576` (1 MiB).
+	- `perMessageDeflate` [&lt;Object&gt;][Object] | [&lt;boolean&gt;][boolean] Passed to the underling [WebSocketServer][WebSocketServer] to configure automatic [message compression](https://www.rfc-editor.org/rfc/rfc7692#section-7). **Default:** Enabled for messages at least `8192` bytes (8 KiB) in size.
+	- `verifyClient` [&lt;Function&gt;][Function] Passed to the underling [WebSocketServer][WebSocketServer] to conditionally accept or reject incoming connections. **Default**: `null`.
+	- `logger` [&lt;Function&gt;][Function] If provided, auto-generated server logs will be passed to this function, for convenience. **Default**: `null`.
 	- Any option allowed in [`server.listen()`](https://nodejs.org/api/net.html#serverlistenoptions-callback).
-- Returns: [<Promise][Promise][<WebSocketServer>][WebSocketServer][>][Promise]
+- Returns: [&lt;Promise][Promise][&lt;WebSocketServer&gt;][WebSocketServer][&gt;][Promise]
 
 Creates and starts a [WebSocketServer](https://github.com/websockets/ws/blob/master/doc/ws.md#class-websocketserver) that uses BlueRPC to serve the given `methods`. By default, port `80` is used for [http.Servers][HTTPServer] and port `443` is used for [https.Servers][HTTPSServer], but you can pass any custom `port` you like.
 
@@ -46,12 +46,12 @@ const perMessageDeflate = {
 
 ### BlueRPC.createClient(url[, options])
 
-- `url` [<string>][string] The URL of the BlueRPC server to connect to.
-- `options` [<Object>][Object]
-	- `maxPayload` [<number>][number] The maximum accepted size of incoming WebSocket messages (in bytes). **Default:** `1048576` (1 MiB).
-	- `perMessageDeflate` [<Object>][Object] | [<boolean>][boolean] Passed to the underling [WebSocket][WebSocket] to configure automatic [message compression](https://www.rfc-editor.org/rfc/rfc7692#section-7). **Default:** Enabled for messages at least `8192` bytes (8 KiB) in size.
+- `url` [&lt;string&gt;][string] The URL of the BlueRPC server to connect to.
+- `options` [&lt;Object&gt;][Object]
+	- `maxPayload` [&lt;number&gt;][number] The maximum accepted size of incoming WebSocket messages (in bytes). **Default:** `1048576` (1 MiB).
+	- `perMessageDeflate` [&lt;Object&gt;][Object] | [&lt;boolean&gt;][boolean] Passed to the underling [WebSocket][WebSocket] to configure automatic [message compression](https://www.rfc-editor.org/rfc/rfc7692#section-7). **Default:** Enabled for messages at least `8192` bytes (8 KiB) in size.
 	- Any option allowed in [`http.request()`](https://nodejs.org/api/http.html#httprequesturl-options-callback) or [`https.request()`](https://nodejs.org/api/https.html#httpsrequesturl-options-callback).
-- Returns: [<BlueClient>][BlueClient]
+- Returns: [&lt;BlueClient&gt;][BlueClient]
 
 Creates a BlueRPC client and connects to the specified server. In the browser, all options are ignored.
 
@@ -61,10 +61,10 @@ This class represents a BlueRPC client. It allows you to invoke methods on a rem
 
 ### client.invoke(methodName, param[, abortSignal])
 
-- `methodName` [<string>][string] The name of the remote method to invoke.
-- `param` [<any>][any] The value to send to the remote method.
-- `abortSignal` [<AbortSignal>][AbortSignal] A signal that the remote server will receive, if triggered. **Default:** `null`.
-- Returns: [<Promise][Promise][<any>][any][>][Promise]
+- `methodName` [&lt;string&gt;][string] The name of the remote method to invoke.
+- `param` [&lt;any&gt;][any] The value to send to the remote method.
+- `abortSignal` [&lt;AbortSignal&gt;][AbortSignal] A signal that the remote server will receive, if triggered. **Default:** `null`.
+- Returns: [&lt;Promise][Promise][&lt;any&gt;][any][&gt;][Promise]
 
 Invokes a method on the remote server and returns a [Promise][Promise] that will resolve with the method's result. If the method throws an exception, the promise will be rejected with the error.
 
@@ -72,15 +72,15 @@ If you pass an [AbortSignal][AbortSignal], you'll be able to cancel the RPC call
 
 ### client.notify(methodName, param)
 
-- `methodName` [<string>][string] The name of the remote method to invoke.
-- `param` [<any>][any] The value to send to the remote method.
-- Returns: [<Promise][Promise][<undefined>][undefined][>][Promise]
+- `methodName` [&lt;string&gt;][string] The name of the remote method to invoke.
+- `param` [&lt;any&gt;][any] The value to send to the remote method.
+- Returns: [&lt;Promise][Promise][&lt;undefined&gt;][undefined][&gt;][Promise]
 
 This is the same as [client.invoke()](#clientinvokemethodname-param-abortsignal) except that it returns nothing and it cannot be aborted. In BlueRPC, notifications are a way of invoking remote methods without needing an RPC response. The returned promise resolves as soon as the notification is successfully sent.
 
 ### client.cancel()
 
-- Returns: [<undefined>][undefined]
+- Returns: [&lt;undefined&gt;][undefined]
 
 Closes all open WebSocket connections, cancelling any RPC calls or streams that were in progress. You may continue using the client normally after calling this.
 
@@ -88,27 +88,27 @@ Closes all open WebSocket connections, cancelling any RPC calls or streams that 
 
 ### context.signal
 
-- [<AbortSignal>][AbortSignal]
+- [&lt;AbortSignal&gt;][AbortSignal]
 
 Read-only property communicating whether this RPC method was aborted by the client. Note that the client can trigger this explicitly but it will also be triggered automatically if the WebSocket connection closes.
 
 ### context.isAborted
 
-- [<boolean>][boolean]
+- [&lt;boolean&gt;][boolean]
 
 Alias for `context.signal.aborted`.
 
 ### context.isNotification
 
-- [<boolean>][boolean]
+- [&lt;boolean&gt;][boolean]
 
 Read-only property indicating whether this RPC method was invoked as a notification.
 
 ### context.connection
 
-- [<Object>][Object]
-	- `tls` [<boolean>][boolean] Whether this RPC method was invoked over a [TLS](https://nodejs.org/api/tls.html) connection.
-	- `headers` [<Object>][Object] The headers that were sent by the client in the WebSocket opening handshake.
+- [&lt;Object&gt;][Object]
+	- `tls` [&lt;boolean&gt;][boolean] Whether this RPC method was invoked over a [TLS](https://nodejs.org/api/tls.html) connection.
+	- `headers` [&lt;Object&gt;][Object] The headers that were sent by the client in the WebSocket opening handshake.
 
 An object containing info about the underling connection. This object is shared among all RPC calls on the same connection, so you can use it as a place to store your own "session data".
 

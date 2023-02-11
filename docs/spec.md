@@ -1,6 +1,6 @@
 # BlueRPC Specification (v1.0)
 
-This specification should provide the developer with the information needed to implement the protocol.
+This specification should provide developers with the information needed to implement the protocol.
 
 ## 1. Overview
 
@@ -73,7 +73,7 @@ If the method handler was successful, the Response is serialized as an Array wit
 - The second element is an Integer whose value is the associated Request ID.
 - The third element is any value within the BlueRPC type system, representing the "return value" of the method call.
 
-If the method handler was *not* successful (i.e., it encountered an error), *or* the requested method is not implemented, the Response is serialized as an Array with these three elements:
+If the method handler was *not* successful (i.e., it encountered an error), *or* the requested method was not implemented, the Response is serialized as an Array with these three elements:
 
 - The first element is an Integer whose value is "3".
 - The second element is an Integer whose value is the associated Request ID.
