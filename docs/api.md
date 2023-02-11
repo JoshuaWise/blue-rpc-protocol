@@ -49,7 +49,7 @@ const perMessageDeflate = {
 - `url` [&lt;string&gt;][string] The URL of the BlueRPC server to connect to.
 - `options` [&lt;Object&gt;][Object]
 	- `maxPayload` [&lt;number&gt;][number] The maximum accepted size of incoming WebSocket messages (in bytes). **Default:** `1048576` (1 MiB).
-	- `perMessageDeflate` [&lt;Object&gt;][Object] | [&lt;boolean&gt;][boolean] Passed to the underlying [WebSocket][WebSocket] to configure automatic [message compression](https://www.rfc-editor.org/rfc/rfc7692#section-7). **Default:** Enabled for messages at least `8192` bytes (8 KiB) in size.
+	- `perMessageDeflate` [&lt;Object&gt;][Object] | [&lt;boolean&gt;][boolean] Passed to the underlying [WebSocket][WebSocket] to configure automatic [message compression](https://www.rfc-editor.org/rfc/rfc7692#section-7). **Default:** Compresses messages at least `8192` bytes (8 KiB) in size.
 	- Any option allowed in [`http.request()`](https://nodejs.org/api/http.html#httprequesturl-options-callback) or [`https.request()`](https://nodejs.org/api/https.html#httpsrequesturl-options-callback).
 - Returns: [&lt;BlueClient&gt;][BlueClient]
 
