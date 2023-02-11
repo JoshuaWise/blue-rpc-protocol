@@ -52,8 +52,8 @@ await BlueRPC.listen({
 const BlueRPC = require('blue-rpc');
 
 const client = BlueRPC.createClient('ws://localhost');
-const result = await client.invoke('echo', 'foo');
 
+const result = await client.invoke('echo', 'foo');
 console.log('result:', result); // => "result: foo"
 ```
 
