@@ -33,15 +33,17 @@ npm install blue-rpc
 const http = require('http');
 const BlueRPC = require('blue-rpc');
 
-const server = http.createServer();
-
 const methods = {
     echo: (param) => {
         return param;
     }
 };
 
-await BlueRPC.listen({ server, methods, logger: console.log });
+await BlueRPC.listen({
+	methods,
+	server: http.createServer(),
+	logger: console.log,
+});
 ```
 
 #### Client example
