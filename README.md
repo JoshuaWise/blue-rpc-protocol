@@ -40,9 +40,9 @@ const methods = {
 };
 
 await BlueRPC.listen({
-	methods,
-	server: http.createServer(),
-	logger: console.log,
+    methods,
+    server: http.createServer(),
+    logger: console.log
 });
 ```
 
