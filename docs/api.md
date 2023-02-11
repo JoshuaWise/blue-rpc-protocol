@@ -53,7 +53,9 @@ const perMessageDeflate = {
 	- Any option allowed in [`http.request()`](https://nodejs.org/api/http.html#httprequesturl-options-callback) or [`https.request()`](https://nodejs.org/api/https.html#httpsrequesturl-options-callback).
 - Returns: [&lt;BlueClient&gt;][BlueClient]
 
-Creates a BlueRPC client and connects to the specified server. In the browser, all options are ignored.
+Creates a BlueRPC client and connects to the specified server.
+
+In the browser, all options are ignored.
 
 ## class *BlueClient*
 
@@ -63,7 +65,7 @@ This class represents a BlueRPC client. It allows you to invoke methods on a rem
 
 - `methodName` [&lt;string&gt;][string] The name of the remote method to invoke.
 - `param` [&lt;any&gt;][any] The value to send to the remote method.
-- `abortSignal` [&lt;AbortSignal&gt;][AbortSignal] A signal that the remote server will receive, if triggered. **Default:** `null`.
+- `abortSignal` [&lt;AbortSignal&gt;][AbortSignal] A signal that can be used to cancel the RPC call. **Default:** `null`.
 - Returns: [&lt;Promise][Promise][&lt;any&gt;][any][&gt;][Promise]
 
 Invokes a method on the remote server and returns a [Promise][Promise] that will resolve with the method's result. If the method throws an exception, the promise will be rejected with the error.
