@@ -12,7 +12,7 @@
 	- [`context.isNotification`](#contextisnotification)
 	- [`context.connection`](#contextconnection)
 
-### BlueRPC.listen(options)
+## BlueRPC.listen(options)
 
 - `options` [&lt;Object&gt;][Object]
 	- `server` [&lt;http.Server&gt;][HTTPServer] an HTTP or HTTPS server instance to attach to.
@@ -30,7 +30,7 @@ All RPC methods will receive a [MethodContext][MethodContext] as their second pa
 
 The returned promise will not resolve until the server is ready to accept connections.
 
-##### Configuring `perMessageDeflate`
+#### Configuring `perMessageDeflate`
 
 Although compression can greatly reduce bandwidth usage, it also has real CPU and memory costs. Usually these costs don't become a bottleneck unless you are processing thousands of messages per second (on a typical workstation in 2023). Usually, if you are processing that many messages per second, each message is so small that bandwidth is not even an issue. This is the rationale that led to the current default setting, which only compresses messages at least 8 KiB in size. It is a compromise that tries to minimize CPU and memory costs while still using compression in cases where you are likely to benefit from it.
 
@@ -44,7 +44,7 @@ const perMessageDeflate = {
 };
 ```
 
-### BlueRPC.createClient(url[, options])
+## BlueRPC.createClient(url[, options])
 
 - `url` [&lt;string&gt;][string] The URL of the BlueRPC server to connect to.
 - `options` [&lt;Object&gt;][Object]
@@ -55,7 +55,7 @@ const perMessageDeflate = {
 
 Creates a BlueRPC client and connects to the specified server. In the browser, all options are ignored.
 
-# class *BlueClient*
+## class *BlueClient*
 
 This class represents a BlueRPC client. It allows you to invoke methods on a remote BlueRPC server.
 
@@ -84,7 +84,7 @@ This is the same as [client.invoke()](#clientinvokemethodname-param-abortsignal)
 
 Closes all open WebSocket connections, cancelling any RPC calls or streams that were in progress. You may continue using the client normally after calling this.
 
-# class *MethodContext*
+## class *MethodContext*
 
 ### context.signal
 
