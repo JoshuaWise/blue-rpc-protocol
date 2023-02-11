@@ -26,7 +26,7 @@
 
 Creates and starts a [WebSocketServer](https://github.com/websockets/ws/blob/master/doc/ws.md#class-websocketserver) that uses BlueRPC to serve the given `methods`. By default, port `80` is used for [http.Servers][HTTPServer] and port `443` is used for [https.Servers][HTTPSServer], but you can pass any custom `port` you like.
 
-All RPC methods will receive a [MethodContext][MethodContext] as their second parameter, which exposes metadata about the invocation. If an RPC method returns without using a stream that was sent by the client, such streams will automatically be cleaned up. Therefore, resource management is handled automatically for you.
+All RPC method handlers will receive a [MethodContext][MethodContext] as their second parameter, which exposes metadata about the invocation. If the client sends a stream, but the method handler returns without using it, the stream will automatically be cleaned up, so you don't have to worry about resource management.
 
 The returned promise will not resolve until the server is ready to accept connections.
 
