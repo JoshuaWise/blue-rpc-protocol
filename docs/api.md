@@ -18,7 +18,7 @@
 	- `server` [&lt;http.Server&gt;][HTTPServer] an HTTP or HTTPS server instance to attach to.
 	- `methods` [&lt;Object&gt;][Object] A map of RPC-style methods to serve.
 	- `maxPayload` [&lt;number&gt;][number] The maximum accepted size of incoming WebSocket messages (in bytes). **Default:** `1048576` (1 MiB).
-	- `perMessageDeflate` [&lt;Object&gt;][Object] | [&lt;boolean&gt;][boolean] Passed to the underlying [WebSocketServer][WebSocketServer] to configure automatic compression. **Default:** Enabled for messages at least `8192` bytes (8 KiB) in size.
+	- `perMessageDeflate` [&lt;Object&gt;][Object] | [&lt;boolean&gt;][boolean] Passed to the underlying [WebSocketServer][WebSocketServer] to configure automatic compression. **Default:** Compresses messages at least `8192` bytes (8 KiB) in size.
 	- `verifyClient` [&lt;Function&gt;][Function] Passed to the underlying [WebSocketServer][WebSocketServer] to reject incoming connections. **Default**: `null`.
 	- `logger` [&lt;Function&gt;][Function] If provided, auto-generated server logs will be passed to this function, for convenience. **Default**: `null`.
 	- Any option allowed in [`server.listen()`](https://nodejs.org/api/net.html#serverlistenoptions-callback).
