@@ -18,8 +18,8 @@
 	- `server` [&lt;http.Server&gt;][HTTPServer] an HTTP or HTTPS server instance to attach to.
 	- `methods` [&lt;Object&gt;][Object] A map of RPC-style methods to serve.
 	- `maxPayload` [&lt;number&gt;][number] The maximum accepted size of incoming WebSocket messages (in bytes). **Default:** `1048576` (1 MiB).
-	- `perMessageDeflate` [&lt;Object&gt;][Object] | [&lt;boolean&gt;][boolean] Passed to the underling [WebSocketServer][WebSocketServer] to configure automatic [message compression](https://www.rfc-editor.org/rfc/rfc7692#section-7). **Default:** Enabled for messages at least `8192` bytes (8 KiB) in size.
-	- `verifyClient` [&lt;Function&gt;][Function] Passed to the underling [WebSocketServer][WebSocketServer] to conditionally accept or reject incoming connections. **Default**: `null`.
+	- `perMessageDeflate` [&lt;Object&gt;][Object] | [&lt;boolean&gt;][boolean] Passed to the underlying [WebSocketServer][WebSocketServer] to configure automatic compression. **Default:** Enabled for messages at least `8192` bytes (8 KiB) in size.
+	- `verifyClient` [&lt;Function&gt;][Function] Passed to the underlying [WebSocketServer][WebSocketServer] to reject incoming connections. **Default**: `null`.
 	- `logger` [&lt;Function&gt;][Function] If provided, auto-generated server logs will be passed to this function, for convenience. **Default**: `null`.
 	- Any option allowed in [`server.listen()`](https://nodejs.org/api/net.html#serverlistenoptions-callback).
 - Returns: [&lt;Promise][Promise][&lt;WebSocketServer&gt;][WebSocketServer][&gt;][Promise]
@@ -49,7 +49,7 @@ const perMessageDeflate = {
 - `url` [&lt;string&gt;][string] The URL of the BlueRPC server to connect to.
 - `options` [&lt;Object&gt;][Object]
 	- `maxPayload` [&lt;number&gt;][number] The maximum accepted size of incoming WebSocket messages (in bytes). **Default:** `1048576` (1 MiB).
-	- `perMessageDeflate` [&lt;Object&gt;][Object] | [&lt;boolean&gt;][boolean] Passed to the underling [WebSocket][WebSocket] to configure automatic [message compression](https://www.rfc-editor.org/rfc/rfc7692#section-7). **Default:** Enabled for messages at least `8192` bytes (8 KiB) in size.
+	- `perMessageDeflate` [&lt;Object&gt;][Object] | [&lt;boolean&gt;][boolean] Passed to the underlying [WebSocket][WebSocket] to configure automatic [message compression](https://www.rfc-editor.org/rfc/rfc7692#section-7). **Default:** Enabled for messages at least `8192` bytes (8 KiB) in size.
 	- Any option allowed in [`http.request()`](https://nodejs.org/api/http.html#httprequesturl-options-callback) or [`https.request()`](https://nodejs.org/api/https.html#httpsrequesturl-options-callback).
 - Returns: [&lt;BlueClient&gt;][BlueClient]
 
@@ -110,7 +110,7 @@ Read-only property indicating whether this RPC method was invoked as a notificat
 	- `tls` [&lt;boolean&gt;][boolean] Whether this RPC method was invoked over a [TLS](https://nodejs.org/api/tls.html) connection.
 	- `headers` [&lt;Object&gt;][Object] The headers that were sent by the client in the WebSocket opening handshake.
 
-An object containing info about the underling connection. This object is shared among all RPC calls on the same connection, so you can use it as a place to store your own "session data".
+An object containing info about the underlying connection. This object is shared among all RPC calls on the same connection, so you can use it as a place to store your own "session data".
 
 
 
