@@ -35,9 +35,9 @@ const BlueRPC = require('blue-rpc');
 
 const server = http.createServer();
 const methods = {
-	echo: (param) => {
-		return param;
-	}
+    echo: (param) => {
+        return param;
+    }
 };
 
 await BlueRPC.listen({ server, methods, logger: console.log });
