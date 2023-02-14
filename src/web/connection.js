@@ -90,51 +90,50 @@ module.exports = class BlueConnection {
 			}
 		}
 
-		socket
-			.addEventListener('close', ({ code, reason }) => {
-				error = error || new Error('BlueRPC: WebSocket disconnected');
-				error.code = code;
-				error.reason = reason;
+		socket.addEventListener('close', ({ code, reason }) => {
+			error = error || new Error('BlueRPC: WebSocket disconnected');
+			error.code = code;
+			error.reason = reason;
 
-				for (const resolver of requests.values()) {
-					resolver.reject(error);
-				}
-				for (const sender of sentStreams.values()) {
-					sender.cancel();
-				}
-				for (const receiver of receivedStreams.values()) {
-					receiver.error(error);
-				}
-				requests.clear();
-				sentStreams.clear();
-				receivedStreams.clear();
+			for (const resolver of requests.values()) {
+				resolver.reject(error);
+			}
+			for (const sender of sentStreams.values()) {
+				sender.cancel();
+			}
+			for (const receiver of receivedStreams.values()) {
+				receiver.error(error);
+			}
+			requests.clear();
+			sentStreams.clear();
+			receivedStreams.clear();
 
-				const onClose = this.onClose;
-				this.onClose = null;
-				onClose && onClose();
-			})
-			.addEventListener('error', () => {
-				error = error || new Error('WebSocket error occurred');
-			})
-			.addEventListener('message', ({ data: rawMsg }) => {
-				let msgType, msg, streams;
-				try {
-					[msgType, msg, streams] = parseMessage(
-						rawMsg, encoder, handlers, receivedStreams
-					);
-				} catch (err) {
-					error = error || new Error(`BlueRPC: ${err.message}`);
-					socket.close(err.code, err.reason);
-					return;
-				}
+			const onClose = this.onClose;
+			this.onClose = null;
+			onClose && onClose();
+		});
+		socket.addEventListener('error', () => {
+			error = error || new Error('WebSocket error occurred');
+		});
+		socket.addEventListener('message', ({ data: rawMsg }) => {
+			let msgType, msg, streams;
+			try {
+				[msgType, msg, streams] = parseMessage(
+					rawMsg, encoder, handlers, receivedStreams
+				);
+			} catch (err) {
+				error = error || new Error(`BlueRPC: ${err.message}`);
+				socket.close(err.code, err.reason);
+				return;
+			}
 
-				const handler = handlers[msgType];
-				if (handler) {
-					handler(msg, streams);
-				} else {
-					discardStreams(streams);
-				}
-			});
+			const handler = handlers[msgType];
+			if (handler) {
+				handler(msg, streams);
+			} else {
+				discardStreams(streams);
+			}
+		});
 
 		const handlers = {
 			[M.RESPONSE_SUCCESS]([requestId, result], streams) {

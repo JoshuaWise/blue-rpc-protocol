@@ -40,34 +40,45 @@ exports.populate = (stream, { onResume, onDestroyed }) => {
 		},
 		end: () => {
 			controller.close();
-			Promise.then().then(onDestroyed);
+			Promise.resolve().then(onDestroyed);
 		},
 		error: (err) => {
 			controller.error(err);
-			Promise.then().then(onDestroyed);
+			Promise.resolve().then(onDestroyed);
 		},
 	};
 };
 
 // Used to consume a stream, so we can send it over BlueRPC.
 exports.consume = (stream, { onData, onEnd, onError, onClose }) => {
-	onClose = once(onClose);
-
 	const reader = stream.getReader();
 	const noop = () => {};
 
 	let paused = 0;
 	let iteration = 1;
+	let finished = false;
 	const loop = ({ done, value }) => {
-		if (done) return;
-		iteration += 1;
-		onData(value);
-		paused || reader.read().then(loop, noop);
+		if (done) {
+			if (!finished) {
+				finished = true;
+				onEnd();
+				onClose();
+			}
+		} else {
+			iteration += 1;
+			onData(value);
+			paused || reader.read().then(loop, noop);
+		}
 	};
 
-	let onEndOrCancel = onEnd;
-	reader.closed.then(() => onEndOrCancel(), onError).then(onClose);
 	reader.read().then(loop, noop);
+	reader.closed.catch((err) => {
+		if (!finished) {
+			finished = true;
+			onError(err);
+			onClose(err);
+		}
+	});
 
 	return {
 		pause: () => {
@@ -81,8 +92,11 @@ exports.consume = (stream, { onData, onEnd, onError, onClose }) => {
 			}
 		},
 		cancel: (...reason) => {
-			onEndOrCancel = () => onClose(...reason);
-			reader.cancel(...reason).catch(noop);
+			if (!finished) {
+				finished = true;
+				reader.cancel(...reason).catch(noop);
+				reader.closed.then(() => onClose(...reason));
+			}
 		},
 	};
 };
@@ -108,14 +122,5 @@ exports.concatOctets = (buffers) => {
 	}
 	return output;
 };
-
-function once(fn) {
-	let called = false;
-	return (...args) => {
-		if (called) return;
-		called = true;
-		return fn(...args);
-	};
-}
 
 Object.assign(require('../common/stream'), exports);
