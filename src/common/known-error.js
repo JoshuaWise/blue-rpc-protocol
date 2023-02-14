@@ -7,7 +7,7 @@
 	stripped.
  */
 
-module.exports = class KnownError {
+module.exports = class KnownError extends Error {
 	constructor(message, props) {
 		super(message);
 		Object.assign(this, props);
