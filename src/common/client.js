@@ -51,6 +51,7 @@ module.exports = class BlueClient {
 	}
 
 	// Closes all open connections, cancelling all current operations.
+	// TODO: this doesn't cancel requests that are still fetching a connection
 	cancel() {
 		for (const connection of this[openConnections]) {
 			connection.close(1001, 'Cancelled by client');

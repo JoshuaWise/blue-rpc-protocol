@@ -172,18 +172,19 @@ When a Peer receives a WebSocket message that it must ignore, there is a possibi
 
 ### 7.3. Stream Signal message
 
-Stream Signal messages are sent by the receiver of a Stream to provide hints for the Stream's sender to operate more efficiently. This process is often referred to as "flow control" or "backpressure".
+Stream Signal messages are sent by the receiver of a Stream to inform the Stream's sender of how much data the receiver can handle. This process is often referred to as "flow control" or "backpressure". BlueRPC uses a credit-based system where Stream receivers send "credits" to Stream senders, indicating how many octets of Stream Data may be sent.
 
-When a Peer initially receives a Stream, they MUST promptly send a Stream Signal. Also, an additional Stream Signal MUST be sent each time the available space in the Stream's associated buffer changes by some fixed amount (this amount may vary per Stream), compared to when the previous Stream Signal was sent. For example, if a Stream Signal is sent when the buffer's available space is 10 MiB, then the next Stream Signal could be sent when the available space crosses either 5 MiB or 15 MiB. A Stream Signal is serialized as an Array with these four elements:
+When a Peer initially receives a Stream, they MUST promptly send a Stream Signal. Additional Stream Signals MAY be sent during the lifetime of the Stream, based on the implementation's flow control policy. A Stream Signal is serialized as an Array with these three elements:
 
 - The first element is an Integer whose value is "9".
 - The second element is an Integer whose value is the associated Stream ID.
-- The third element is an Integer whose value is sum of the sizes of all Stream Data received so far for the associated Stream, in KiB (rounded down). For the first Stream Signal associated with a Stream, this will generally be "0".
-- The fourth element is an Integer whose value represents the number of KiB (rounded down) of remaining space in the receiver's buffer for the associated Stream.
+- The third element is either an Integer or Nil where, as an Integer, it represents an amount of "credits" being granted, in bytes.
 
-Each time a Peer receives a Stream Signal, it is RECOMMENDED that they pause the stream unless/until the supposed available space is greater than or equal to the size of their next unsent piece of Stream Data. Additionally, it is RECOMMENDED that they compare the Stream Signal's third element with their own record of sent Stream Data to more accurately predict the other Peer's available space, despite any network latency.
+When a Peer sends a Stream, it initially has zero credits associated with that Stream. The only way for the Peer to receive credits is by receiving Stream Signals. Peers MUST NOT send Stream Chunks containing Stream Data while their accumulated credits for the associated Stream is less than or equal to the number of bytes of Stream Data sent thus far. As a result, Peers MUST NOT send any Stream Data for a Stream until receiving a Stream Signal that allows them to do so. Note that Stream Signals can also remove credits by containing negative quantities.
 
-Peers MAY ignore any Stream Signal that they receive. Therefore, buffers associated with Streams need to be prepared to buffer any amount of data. In other words, the fourth element of a Stream Signal does not necessarily represent a true "hard limit" on available space.
+Note that it is possible for a Peer to send Stream Data that would cause the total amount of sent Stream Data to be *greater* than their accumulated credits, but doing so would put them in a state where they cannot send *more* Stream Data. This leniency is required to prevent deadlocks in Object Streams, when the next value in the Object Stream is larger than the receiver's "high water mark". Receivers of Streams can still have predictable memory requirements by understanding that their memory requirement is actually equal to the amount of credits they grant *plus* their enforced limit on the size of individual WebSocket messages (see section 8.2).
+
+A Stream Signal whose third element is Nil is called a Nil Stream Signal. When a Peer receives a Nil Stream Signal, it is permitted to send as much Stream Data as it likes (for the associated Stream), regardless of credit, until a non-Nil Stream Signal is received. However, the Peer MUST still count how much Stream Data it sends, so that it can switch back to the credit-based system if/when it receives a non-Nil Stream Signal. A Stream Signal with an amount of credits equal to "0" can be seen as the opposite of a Nil Stream Signal; while a Nil Stream Signal disables the credit-based system, a "0"-credit Stream Signal re-enables it without actually granting any credits.
 
 After a Peer sends a Stream Cancellation *or* receives a Final Stream Chunk, it SHOULD NOT ever send any more Stream Signals with the same Stream ID across the same WebSocket connection. If a Peer receives a Stream Signal containing a Stream ID that is not within its set of "sent Stream IDs, it MUST ignore it.
 
