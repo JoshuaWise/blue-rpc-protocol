@@ -10,7 +10,7 @@ const Encoder = require('../common/encoder');
 const Stream = require('../common/stream');
 const M = require('../common/message');
 
-module.exports = class BlueConnection extends EventTarget {
+module.exports = class BlueConnection {
 	constructor(socket) {
 		if (!(socket instanceof WebSocket)) {
 			throw new TypeError('Expected first argument to be a WebSocket');
@@ -19,7 +19,6 @@ module.exports = class BlueConnection extends EventTarget {
 			throw new TypeError('Expected WebSocket to be in the OPEN state');
 		}
 
-		super();
 		let error = null;
 		let isOldConnection = false;
 		const getRequestId = createIncrementor();
@@ -92,12 +91,10 @@ module.exports = class BlueConnection extends EventTarget {
 							socket.close(err.code, err.reason);
 						}
 					},
-					onSignal: (received, available) => {
+					onSignal: (credit) => {
 						if (receivedStreams.has(streamId)) {
-							const receivedKiB = Math.floor(received / 1024);
-							const availableKiB = Math.floor(available / 1024);
 							socket.send(encoder.encodeInert(
-								[M.STREAM_SIGNAL, streamId, receivedKiB, availableKiB]
+								[M.STREAM_SIGNAL, streamId, credit]
 							));
 						}
 					},
@@ -116,22 +113,27 @@ module.exports = class BlueConnection extends EventTarget {
 
 		socket
 			.on('close', (code, reason) => {
-				this.dispatchEvent(
-					Object.assign(new Event('close'), { error, code, reason })
-				);
+				error = error || new Error('BlueRPC: WebSocket disconnected');
+				error.code = code;
+				error.reason = reason;
+
 				for (const resolver of requests.values()) {
-					resolver.reject(new Error('BlueRPC: WebSocket disconnected'));
+					resolver.reject(error);
 				}
 				for (const sender of sentStreams.values()) {
 					sender.cancel();
 				}
 				for (const receiver of receivedStreams.values()) {
-					receiver.error(new Error('BlueRPC: WebSocket disconnected'));
+					receiver.error(error);
 				}
 				requests.clear();
 				sentStreams.clear();
 				receivedStreams.clear();
 				timer.stop();
+
+				const onClose = this.onClose;
+				this.onClose = null;
+				onClose && onClose();
 			})
 			.on('error', (err) => {
 				error = error || err;
@@ -215,10 +217,10 @@ module.exports = class BlueConnection extends EventTarget {
 					updateRef();
 				}
 			},
-			[M.STREAM_SIGNAL]([streamId, receivedKiB, availableKiB]) {
+			[M.STREAM_SIGNAL]([streamId, credit]) {
 				const sender = sentStreams.get(streamId);
 				if (sender) {
-					sender.signal(receivedKiB, availableKiB);
+					sender.signal(credit);
 				}
 			},
 		};
@@ -282,13 +284,15 @@ module.exports = class BlueConnection extends EventTarget {
 				socket.close(code, reason);
 			},
 
-			get isOpen() {
+			isOpen() {
 				return socket.readyState === WebSocket.OPEN;
 			},
 
-			get isOld() {
+			isOld() {
 				return isOldConnection;
 			},
+
+			onClose: null,
 		});
 	}
 };

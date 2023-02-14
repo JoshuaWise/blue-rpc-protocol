@@ -68,10 +68,9 @@ const validators = new Map([
 		return true;
 	}],
 	[Message.STREAM_SIGNAL, (msg) => {
-		if (msg.length !== 4) return false;
+		if (msg.length !== 3) return false;
 		if (!Number.isInteger(msg[1])) return false;
-		if (!Number.isInteger(msg[2])) return false;
-		if (!Number.isInteger(msg[3])) return false;
+		if (!Number.isInteger(msg[2]) && msg[2] !== null) return false;
 		return true;
 	}],
 ]);

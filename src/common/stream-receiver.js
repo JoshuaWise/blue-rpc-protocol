@@ -2,8 +2,9 @@
 const Stream = require('./stream');
 const { parseStream } = require('./parse-message');
 
-const HIGH_WATER_MARK = 1024 * 1024 * 10; // TODO: test efficiency, and make configurable
-const SIGNAL_THRESHOLD = HIGH_WATER_MARK / 8;
+// TODO: make backpressure configurable: optimistic, defensive, disabled
+// TODO: decide on whether sender should start paused (with initial signal required)
+const HIGH_WATER_MARK = 1024 * 1024 * 8;
 
 module.exports = class StreamReceiver {
 	constructor(stream, encoder, { onCancellation, onSignal }) {
@@ -12,12 +13,11 @@ module.exports = class StreamReceiver {
 		this._shouldDecode = !Stream.isOctetStream(stream);
 		this._buffer = [];
 		this._bufferSize = 0;
-		this._signalledBufferSize = Infinity;
-		this._receivedBytes = 0;
+		this._credit = HIGH_WATER_MARK;
+		this._backpressure = false;
+		this._paused = false;
 		this._ended = false;
 		this._destroyed = false;
-		this._paused = false;
-		this._didSignal = false;
 		this._onCancellation = onCancellation;
 		this._onSignal = onSignal;
 
@@ -54,19 +54,23 @@ module.exports = class StreamReceiver {
 				this._writer.error = () => {};
 			},
 		});
-
-		Promise.resolve().then(() => {
-			if (!this._didSignal) {
-				this._checkSignal();
-			}
-		});
 	}
 
 	_checkSignal() {
-		if (Math.abs(this._bufferSize - this._signalledBufferSize) > SIGNAL_THRESHOLD) {
-			this._onSignal(this._receivedBytes, HIGH_WATER_MARK - this._bufferSize);
-			this._signalledBufferSize = this._bufferSize;
-			this._didSignal = true;
+		if (this._backpressure) {
+			if (this._bufferSize === 0) {
+				this._backpressure = false;
+				this._onSignal(null);
+			} else if (this._credit > 0) {
+				this._onSignal(this._credit);
+				this._credit = 0;
+			}
+		} else {
+			if (this._bufferSize > HIGH_WATER_MARK) {
+				this._backpressure = true;
+				this._onSignal(this._credit);
+				this._credit = 0;
+			}
 		}
 	}
 
@@ -86,16 +90,19 @@ module.exports = class StreamReceiver {
 		} else {
 			this._paused = !this._writer.write(data);
 		}
+		this._credit += data.byteLength;
 	}
 
 	write(data) {
-		this._receivedBytes += data.byteLength;
 		if (this._paused) {
 			this._buffer.push(data);
 			this._bufferSize += data.byteLength;
 			this._checkSignal();
 		} else {
 			this._handleData(data);
+			if (!this._destroyed && !this._ended) {
+				this._checkSignal();
+			}
 		}
 	}
 

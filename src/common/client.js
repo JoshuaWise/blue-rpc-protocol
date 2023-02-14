@@ -13,9 +13,9 @@ module.exports = class BlueClient {
 		this[openConnections] = new Set();
 		const registerConnection = (connection) =>{
 			this[openConnections].add(connection);
-			connection.addEventListener('close', () => {
+			connection.onClose = () => {
 				this[openConnections].delete(connection);
-			}, { once: true });
+			};
 		};
 
 		// Re-use the same connection as long as it's open.
@@ -27,7 +27,7 @@ module.exports = class BlueClient {
 			const cached = cachedConnection; // Save variable before "await"
 			if (cached) {
 				const connection = await cached;
-				if (connection.isOpen && !connection.isOld) return connection;
+				if (connection.isOpen() && !connection.isOld()) return connection;
 			}
 			if (cachedConnection === cached) { // Protect from race condition
 				cachedConnection = connect();
@@ -41,22 +41,7 @@ module.exports = class BlueClient {
 	// Grabs an available connection and invokes a remote RPC method.
 	async invoke(...args) {
 		const connection = await this[getConnection]();
-
-		let onClose;
-		try {
-			return await new Promise((resolve, reject) => {
-				onClose = ({ error, code, reason }) => {
-					error = error || new Error('BlueRPC: WebSocket disconnected');
-					error.code = code;
-					error.reason = reason;
-					reject(err);
-				};
-				connection.addEventListener('close', onClose, { once: true });
-				connection.invoke(...args).then(resolve, reject);
-			});
-		} finally {
-			connection.removeEventListener('close', onClose);
-		}
+		return connection.invoke(...args);
 	}
 
 	// Grabs an available connection and sends an RPC notification.

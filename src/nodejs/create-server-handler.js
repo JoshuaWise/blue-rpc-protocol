@@ -117,12 +117,10 @@ module.exports = (methods, logger) => {
 							socket.close(err.code, err.reason);
 						}
 					},
-					onSignal: (received, available) => {
+					onSignal: (credit) => {
 						if (receivedStreams.has(streamId)) {
-							const receivedKiB = Math.floor(received / 1024);
-							const availableKiB = Math.floor(available / 1024);
 							socket.send(encoder.encodeInert(
-								[M.STREAM_SIGNAL, streamId, receivedKiB, availableKiB]
+								[M.STREAM_SIGNAL, streamId, credit]
 							));
 						}
 					},
@@ -165,6 +163,7 @@ module.exports = (methods, logger) => {
 					sender.cancel();
 				}
 				for (const receiver of receivedStreams.values()) {
+					// TODO: these errors aren't captured from their real source, like in clients
 					receiver.error(new Error('BlueRPC: WebSocket disconnected'));
 				}
 				requests.clear();
@@ -262,10 +261,10 @@ module.exports = (methods, logger) => {
 					sender.cancel();
 				}
 			},
-			[M.STREAM_SIGNAL]([streamId, receivedKiB, availableKiB]) {
+			[M.STREAM_SIGNAL]([streamId, credit]) {
 				const sender = sentStreams.get(streamId);
 				if (sender) {
-					sender.signal(receivedKiB, availableKiB);
+					sender.signal(credit);
 				}
 			},
 		};

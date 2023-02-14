@@ -1,9 +1,25 @@
 'use strict';
 const Stream = require('./stream');
 
-const IDEAL_CHUNK_SIZE = 1024 * 64; // TODO: measure how effective this is (even if it's useless, we still need to limit chunks to 256 KiB)
-const HIGH_WATER_MARK = 1024 * 1024;
-const LOW_WATER_MARK = HIGH_WATER_MARK / 4;
+// The chunk size should be no less than the smallest block size of all
+// filesystems involved in the pipeline (including both source and destination).
+// Most modern filesystems use a 4 KiB block size, but there's no harm in going
+// a bit larger to account for future evolutions in hardware. We use 64 KiB to
+// match the default highWaterMark of streams created by fs.createReadStream().
+// The BlueRPC specification enforces a maximum chunk size of 256 KiB.
+const IDEAL_CHUNK_SIZE = 1024 * 64;
+
+// The HIGH_WATER_MARK determines how much outgoing data we'll buffer before
+// pausing the source stream. It limits our memory usage when the source stream
+// can provide data much faster than we can send it. However, if it's too small,
+// we can end up sending all the buffered data before the source is able to
+// provide more, resulting in wasted time.
+// A HIGH_WATER_MARK of 0.5 MiB should be good enough for sending data at 2 Gbps
+// from a source that has a latency of 2ms. Fast SSDs, which typically have a
+// latency of 0.5ms or lower, could use a smaller HIGH_WATER_MARK to save some
+// memory. Slow HDDs (especially below 7,200 RPM) might benefit from a greater
+// HIGH_WATER_MARK, but are likely to be bottlenecked by throughput instead.
+const HIGH_WATER_MARK = 1024 * 512;
 
 module.exports = class StreamSender {
 	constructor(stream, encoder, { onData, onEnd, onError, getBufferedAmount }) {
@@ -11,30 +27,28 @@ module.exports = class StreamSender {
 		this._isOctets = Stream.isOctetStream(stream);
 		this._chunks = [];
 		this._chunksSize = 0;
-		this._sentBytes = 0;
+		this._credit = 0;
+		this._backpressure = false;
 		this._destroyed = false;
 
-		const send = (data) => {
-			this._sentBytes += data.byteLength;
-			onData(data, onDrain);
-			if (getBufferedAmount() > HIGH_WATER_MARK) {
-				this._streamControls.pause();
-			}
+		// TODO: we shouldn't just pause, we should also avoid sending data that
+		// would exceeed the available credit, but that means we would need to
+		// actually buffer data (not just chunks) and delay calling onEnd().
+		const shouldPause = () => {
+			return getBufferedAmount() >= HIGH_WATER_MARK
+				|| this._backpressure && this._credit <= 0;
 		};
 
-		const onDrain = () => {
-			if (!this._destroyed && getBufferedAmount() < LOW_WATER_MARK) {
-				this._streamControls.resume();
-				if (this._chunksSize) {
-					flushChunks(IDEAL_CHUNK_SIZE);
-				}
-			}
+		const send = (data) => {
+			onData(data, this._checkPressure);
+			this._credit -= data.byteLength;
+			if (shouldPause()) this._streamControls.pause();
 		};
 
 		const flushChunks = (requiredChunkSize) => {
 			while (
 				this._chunksSize >= requiredChunkSize
-				|| this._chunksSize && getBufferedAmount() < LOW_WATER_MARK
+				|| this._chunksSize && getBufferedAmount() < IDEAL_CHUNK_SIZE
 			) {
 				const data = this._chunks.length > 1
 					? Stream.concatOctets(this._chunks)
@@ -44,6 +58,15 @@ module.exports = class StreamSender {
 				this._chunks = toKeep.byteLength ? [toKeep] : [];
 				this._chunksSize = toKeep.byteLength;
 				send(toSend);
+			}
+		};
+
+		this._checkPressure = () => {
+			if (!this._destroyed && !shouldPause()) {
+				this._streamControls.resume();
+				if (this._chunksSize) {
+					flushChunks(IDEAL_CHUNK_SIZE);
+				}
 			}
 		};
 
@@ -81,6 +104,7 @@ module.exports = class StreamSender {
 				this._destroyed = true;
 				this._chunks = [];
 				this._chunksSize = 0;
+				this._checkPressure = () => {};
 				this._streamControls.cancel = () => {};
 				this._streamControls.pause = () => {};
 				this._streamControls.resume = () => {};
@@ -97,14 +121,18 @@ module.exports = class StreamSender {
 		this._streamControls.cancel(...reason);
 	}
 
-	signal(receivedKiB, availableKiB) {
-		const sentKiB = Math.floor(this._chunksSize / 1024);
-		const inFlightKiB = sentKiB - receivedKiB;
-		const assumedAvailableKiB = availableKiB - inFlightKiB;
-		if (assumedAvailableKiB > 0) {
-			// TODO: unpause (measure if this actually helps or hurts)
+	signal(credit) {
+		if (credit === null) {
+			this._backpressure = false;
+			this._checkPressure();
 		} else {
-			// TODO: pause (measure if this actually helps or hurts)
+			this._backpressure = true;
+			this._credit += credit;
+			if (this._credit <= 0) {
+				this._streamControls.pause();
+			} else {
+				this._checkPressure();
+			}
 		}
 	}
 };
