@@ -161,7 +161,7 @@ module.exports = (methods, logger) => {
 				err.code = code;
 				err.reason = reason.toString();
 
-				logger('Socket[%s] closed (%s "%s")', socketId, code, err.reason);
+				logger('Socket[%s] closed (%s%s)', socketId, code, err.reason && ` "${err.reason}"`);
 				for (const abortController of requests.values()) {
 					abortController.abort();
 				}
