@@ -115,7 +115,7 @@ module.exports = class BlueConnection {
 			.on('close', (code, reason) => {
 				error = error || new Error('BlueRPC: WebSocket disconnected');
 				error.code = code;
-				error.reason = reason;
+				error.reason = reason.toString();
 
 				for (const resolver of requests.values()) {
 					resolver.reject(error);

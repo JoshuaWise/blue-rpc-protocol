@@ -1,6 +1,7 @@
 'use strict';
+const lastCancel = Symbol('lastCancel');
 const openConnections = Symbol('openConnections');
-const getConnection = Symbol('getConnection');
+const getCancellableConnection = Symbol('getCancellableConnection');
 
 /*
 	A BlueRPC client. It re-uses the same connection as much as possible,
@@ -23,7 +24,7 @@ module.exports = class BlueClient {
 		// avoid the risk of the connection being closed due to inactivity while
 		// our request is in-flight.
 		let cachedConnection = null;
-		this[getConnection] = async () => {
+		const getConnection = async () => {
 			const cached = cachedConnection; // Save variable before "await"
 			if (cached) {
 				const connection = await cached;
@@ -36,23 +37,39 @@ module.exports = class BlueClient {
 			}
 			return cachedConnection;
 		};
+
+		// This is the same as getConnection(), except it respects cancellations
+		// that occur while still connecting.
+		this[lastCancel] = Symbol();
+		this[getCancellableConnection] = async () => {
+			const symbol = this[lastCancel];
+			const connection = await getConnection();
+			if (symbol !== this[lastCancel]) {
+				connection.close(1001, 'Cancelled by client');
+				const err = new Error('BlueRPC: WebSocket disconnected');
+				err.code = 1001;
+				err.reason = 'Cancelled by client';
+				throw err;
+			}
+			return connection;
+		};
 	}
 
 	// Grabs an available connection and invokes a remote RPC method.
 	async invoke(...args) {
-		const connection = await this[getConnection]();
+		const connection = await this[getCancellableConnection]();
 		return connection.invoke(...args);
 	}
 
 	// Grabs an available connection and sends an RPC notification.
 	async notify(...args) {
-		const connection = await this[getConnection]();
+		const connection = await this[getCancellableConnection]();
 		return connection.notify(...args);
 	}
 
-	// Closes all open connections, cancelling all current operations.
-	// TODO: this doesn't cancel requests that are still fetching a connection
+	// Closes all existing connections, cancelling all current operations.
 	cancel() {
+		this[lastCancel] = Symbol();
 		for (const connection of this[openConnections]) {
 			connection.close(1001, 'Cancelled by client');
 		}
