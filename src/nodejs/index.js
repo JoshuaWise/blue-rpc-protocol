@@ -3,6 +3,7 @@ require('./stream');
 const https = require('https');
 const { URL } = require('url');
 const { WebSocket, WebSocketServer } = require('ws');
+const KnownError = require('../common/known-error');
 const BlueClient = require('../common/client');
 const BlueConnection = require('./connection');
 const createServerHandler = require('./create-server-handler');
@@ -103,3 +104,5 @@ exports.createClient = (url, options) => {
 
 	return new BlueClient(connect);
 };
+
+exports.KnownError = KnownError;

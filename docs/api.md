@@ -11,6 +11,7 @@
 	- [`context.isAborted`](#contextisaborted)
 	- [`context.isNotification`](#contextisnotification)
 	- [`context.connection`](#contextconnection)
+- [class `KnownError`][KnownError]
 
 ## BlueRPC.listen(options)
 
@@ -114,6 +115,10 @@ Read-only property indicating whether this RPC method was invoked as a notificat
 
 An object containing info about the underlying connection. This object is shared among all RPC calls on the same connection, so you can use it as a place to store your own "session data".
 
+## class *KnownError*
+
+This class represents a known/expected failure condition. KnownError can be used to attach custom properties to an error thrown by a BlueRPC method handler. On other types of errors, all properties except `message` are normally stripped for security reasons.
+
 
 
 [any]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Data_structures#Data_types
@@ -137,3 +142,4 @@ An object containing info about the underlying connection. This object is shared
 [WebSocket]: https://github.com/websockets/ws/blob/master/doc/ws.md#new-websocketaddress-protocols-options
 [BlueClient]: #class-blueclient
 [MethodContext]: #class-methodcontext
+[KnownError]: #class-knownerror

@@ -1,5 +1,6 @@
 'use strict';
 require('./stream');
+const KnownError = require('../common/known-error');
 const BlueClient = require('../common/client');
 const BlueConnection = require('./connection');
 
@@ -49,3 +50,5 @@ exports.createClient = (url, options) => {
 
 	return new BlueClient(connect);
 };
+
+exports.KnownError = KnownError;

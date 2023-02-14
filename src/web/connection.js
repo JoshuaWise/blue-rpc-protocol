@@ -4,6 +4,7 @@ const StreamReceiver = require('../common/stream-receiver');
 const destroyAllStreams = require('../common/destroy-all-streams');
 const createIncrementor = require('../common/create-incrementor');
 const parseMessage = require('../common/parse-message');
+const KnownError = require('../common/known-error');
 const Encoder = require('../common/encoder');
 const Stream = require('../common/stream');
 const M = require('../common/message');
@@ -262,9 +263,8 @@ module.exports = class BlueConnection {
 	}
 };
 
-// TODO: we dont actually want to expose the "expose" property
 function normalizeError(err) {
-	if (!(err instanceof Error)) return new Error(err);
-	if (!err.expose) return new Error(err.message);
-	return err;
+	if (!(err instanceof Error)) return new Error(String(err));
+	if (err instanceof KnownError) return err;
+	return new Error(err.message);
 }
