@@ -44,10 +44,15 @@ module.exports = class BlueConnection {
 					},
 					onError: (err) => {
 						if (sentStreams.delete(streamId)) {
-							// TODO: encoding this Error can throw
-							socket.send(encoder.encodeInert(
-								[M.STREAM_CHUNK_ERROR, streamId, normalizeError(err)]
-							));
+							try {
+								socket.send(encoder.encodeInert(
+									[M.STREAM_CHUNK_ERROR, streamId, normalizeError(err)]
+								));
+							} catch (err2) {
+								socket.send(encoder.encodeInert(
+									[M.STREAM_CHUNK_ERROR, streamId, encodingError(err, err2)]
+								));
+							}
 						}
 					},
 					getBufferedAmount: () => {
@@ -92,18 +97,21 @@ module.exports = class BlueConnection {
 		}
 
 		socket.addEventListener('close', ({ code, reason }) => {
-			error = error || new Error('BlueRPC: WebSocket disconnected');
-			error.code = code;
-			error.reason = reason;
+			const err = new Error('BlueRPC: WebSocket disconnected');
+			err.code = code;
+			err.reason = reason;
+			if (error) {
+				err.causedBy = error;
+			}
 
 			for (const resolver of requests.values()) {
-				resolver.reject(error);
+				resolver.reject(err);
 			}
 			for (const sender of sentStreams.values()) {
 				sender.cancel();
 			}
 			for (const receiver of receivedStreams.values()) {
-				receiver.error(error);
+				receiver.error(err);
 			}
 			requests.clear();
 			sentStreams.clear();
@@ -267,4 +275,10 @@ function normalizeError(err) {
 	if (!(err instanceof Error)) return new Error(String(err));
 	if (err instanceof KnownError) return err;
 	return new Error(err.message);
+}
+
+function encodingError(err, msgpackError) {
+	err = new Error(err.message);
+	err.messagePackEncodeError = new Error(msgpackError.message);
+	return err;
 }

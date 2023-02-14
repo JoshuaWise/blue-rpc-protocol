@@ -51,7 +51,7 @@ module.exports = class StreamSender {
 					try {
 						data = this._encoder.encodeInert(data);
 					} catch (err) {
-						// TODO: raise error
+						this.cancel(err);
 						return;
 					}
 					this._send(data);

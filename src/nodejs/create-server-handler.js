@@ -91,10 +91,14 @@ module.exports = (methods, logger) => {
 					},
 					onError: (err) => {
 						if (sentStreams.delete(streamId)) {
-							// TODO: encoding this Error can throw
-							socket.send(encoder.encodeInert(
-								[M.STREAM_CHUNK_ERROR, streamId, normalizeError(err)]
-							));
+							try {
+								socket.send(encoder.encodeInert(
+									[M.STREAM_CHUNK_ERROR, streamId, normalizeError(err)]
+								));
+							} catch (err) {
+								logger('Socket[%s] error\n%s', socketId, err);
+								socket.close(1011, 'Server error');
+							}
 						}
 					},
 					getBufferedAmount: () => {
@@ -152,8 +156,12 @@ module.exports = (methods, logger) => {
 		}
 
 		socket
-			.on('close', (code) => {
-				logger('Socket[%s] closed (%s)', socketId, code);
+			.on('close', (code,  reason) => {
+				const err = new Error('BlueRPC: WebSocket disconnected');
+				err.code = code;
+				err.reason = reason.toString();
+
+				logger('Socket[%s] closed (%s: "%s")', socketId, code, err.reason);
 				for (const abortController of requests.values()) {
 					abortController.abort();
 				}
@@ -164,8 +172,7 @@ module.exports = (methods, logger) => {
 					sender.cancel();
 				}
 				for (const receiver of receivedStreams.values()) {
-					// TODO: these errors aren't captured from their real source, like in clients
-					receiver.error(new Error('BlueRPC: WebSocket disconnected'));
+					receiver.error(err);
 				}
 				requests.clear();
 				notifications.clear();
