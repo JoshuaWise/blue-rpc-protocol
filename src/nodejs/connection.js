@@ -123,7 +123,7 @@ module.exports = class BlueConnection {
 				err.code = code;
 				err.reason = reason.toString();
 				if (error) {
-					err.causedBy = error;
+					err.cause = error;
 				}
 
 				for (const resolver of requests.values()) {

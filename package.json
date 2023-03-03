@@ -1,12 +1,12 @@
 {
-  "name": "blue-rpc",
+  "name": "blue-rpc-protocol",
   "version": "1.0.0",
-  "description": "A simple but powerful RPC protocol that uses WebSockets and MessagePack",
+  "description": "A fast RPC protocol that uses WebSockets and MessagePack",
   "author": "Joshua Wise <joshuathomaswise@gmail.com>",
-  "homepage": "http://github.com/JoshuaWise/blue-rpc",
+  "homepage": "http://github.com/JoshuaWise/blue-rpc-protocol",
   "repository": {
     "type": "git",
-    "url": "git://github.com/JoshuaWise/blue-rpc.git"
+    "url": "git://github.com/JoshuaWise/blue-rpc-protocol.git"
   },
   "license": "MIT",
   "main": "src/nodejs/index.js",

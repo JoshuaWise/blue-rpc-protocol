@@ -54,7 +54,7 @@ const perMessageDeflate = {
 	- Any option allowed in [`http.request()`](https://nodejs.org/api/http.html#httprequesturl-options-callback) or [`https.request()`](https://nodejs.org/api/https.html#httpsrequesturl-options-callback).
 - Returns: [&lt;BlueClient&gt;][BlueClient]
 
-Creates a BlueRPC client and connects to the specified server.
+Creates a BlueRPC client that connects to the specified server.
 
 In the browser, all options are ignored.
 
