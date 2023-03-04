@@ -14,7 +14,7 @@ Here are its features:
 - Low bandwidth, because of [WebSockets](https://www.rfc-editor.org/rfc/rfc6455), [MessagePack](https://msgpack.org/index.html), and [automatic compression](https://www.rfc-editor.org/rfc/rfc7692#section-7).
 - Simple RPC-style interface.
 - Built-in support for **cancelling** RPC calls and streams.
-- "Notifications", inspired by [JSON-RPC](https://www.jsonrpc.org/specification), for pushing lightweight events to the server.
+- "Notifications", inspired by [JSON-RPC](https://www.jsonrpc.org/specification), allow you to push lightweight events to the server.
 - Encodes strings, binary ([Buffer](https://nodejs.org/api/buffer.html) or [Uint8Array](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Uint8Array)), objects, arrays, floats, integers ([BigInt](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/BigInt)), booleans, null, [Error](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Error), and streams ([stream.Readable](https://nodejs.org/api/stream.html#class-streamreadable) or [ReadableStream](https://developer.mozilla.org/en-US/docs/Web/API/ReadableStream)).
 
 BlueRPC can be implemented in any general-purpose programming language. This repository contains a [specification](./docs/spec.md) and a reference implementation for JavaScript (compatible with Node.js and browsers).
