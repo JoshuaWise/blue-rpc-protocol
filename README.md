@@ -11,7 +11,7 @@ Here are its features:
 - Byte streams, good for efficiently sending/receiving **large payloads** such as files.
 - Object streams, good for representing **pub-sub** subscriptions or observables.
 - Universal web-compatibility, because of [WebSockets](https://www.rfc-editor.org/rfc/rfc6455).
-- Low bandwidth, because of [MessagePack](https://msgpack.org/index.html), [WebSockets](https://www.rfc-editor.org/rfc/rfc6455), and [automatic compression](https://www.rfc-editor.org/rfc/rfc7692#section-7).
+- Low bandwidth, because of [WebSockets](https://www.rfc-editor.org/rfc/rfc6455), [MessagePack](https://msgpack.org/index.html), and [automatic compression](https://www.rfc-editor.org/rfc/rfc7692#section-7).
 - Simple RPC-style interface.
 - Built-in support for **cancelling** RPC calls and streams.
 - "Notifications", inspired by [JSON-RPC](https://www.jsonrpc.org/specification), for pushing lightweight events to the server.
