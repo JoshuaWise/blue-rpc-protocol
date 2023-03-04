@@ -8,8 +8,8 @@ In BlueRPC, streams are first-class data types. You can send streams just like *
 
 Here are its features:
 
-- Byte streams, good at efficiently piping **large payloads** such as files.
-- Object streams, good at representing **pub-sub** subscriptions or observables.
+- Byte streams, good for efficiently piping **large payloads** such as files.
+- Object streams, good for representing **pub-sub** subscriptions or observables.
 - Universal web-compatibility, because of [WebSockets](https://www.rfc-editor.org/rfc/rfc6455).
 - Low bandwidth, because of [MessagePack](https://msgpack.org/index.html), [WebSockets](https://www.rfc-editor.org/rfc/rfc6455), and [automatic compression](https://www.rfc-editor.org/rfc/rfc7692#section-7).
 - Simple RPC-style interface.
