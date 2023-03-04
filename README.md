@@ -1,6 +1,6 @@
 # blue-rpc-protocol
 
-BlueRPC is a **fast** RPC protocol that uses [WebSockets](https://www.rfc-editor.org/rfc/rfc6455) and [MessagePack](https://msgpack.org/index.html). It solves real-world problems and is very easy to use.
+BlueRPC is a *fast* RPC protocol that uses [WebSockets](https://www.rfc-editor.org/rfc/rfc6455) and [MessagePack](https://msgpack.org/index.html). It solves real-world problems and is very easy to use.
 
 In BlueRPC, streams are first-class data types. You can send streams just like *any* other value, and BlueRPC automatically handles things like cancellation and [backpressure](https://nodejs.org/en/docs/guides/backpressuring-in-streams/).
 
