@@ -18,7 +18,7 @@
 - `options` [&lt;Object&gt;][Object]
 	- `server` [&lt;http.Server&gt;][HTTPServer] an HTTP or HTTPS server instance to attach to.
 	- `methods` [&lt;Object&gt;][Object] A map of RPC-style methods to serve.
-	- `maxPayload` [&lt;number&gt;][number] The maximum accepted size of incoming WebSocket messages (in bytes). **Default:** `1048576` (1 MiB). Note that byte streams are not affected by this, as they break large payloads into many smaller messages.
+	- `maxPayload` [&lt;number&gt;][number] The maximum accepted size of incoming WebSocket messages (in bytes). **Default:** `1048576` (1 MiB). Note that byte streams are not affected by this, as they automatically break large payloads into many smaller messages.
 	- `perMessageDeflate` [&lt;Object&gt;][Object] | [&lt;boolean&gt;][boolean] Passed to the underlying [WebSocketServer][WebSocketServer] to configure automatic compression. **Default:** Compresses messages at least `8192` bytes (8 KiB) in size.
 	- `verifyClient` [&lt;Function&gt;][Function] Passed to the underlying [WebSocketServer][WebSocketServer] to reject incoming connections. **Default**: `null`.
 	- `logger` [&lt;Function&gt;][Function] If provided, auto-generated server logs will be passed to this function, for convenience. **Default**: `null`.
@@ -49,7 +49,7 @@ const perMessageDeflate = {
 
 - `url` [&lt;string&gt;][string] The URL of the BlueRPC server to connect to.
 - `options` [&lt;Object&gt;][Object]
-	- `maxPayload` [&lt;number&gt;][number] The maximum accepted size of incoming WebSocket messages (in bytes). **Default:** `1048576` (1 MiB). Note that byte streams are not affected by this, as they break large payloads into many smaller messages.
+	- `maxPayload` [&lt;number&gt;][number] The maximum accepted size of incoming WebSocket messages (in bytes). **Default:** `1048576` (1 MiB). Note that byte streams are not affected by this, as they automatically break large payloads into many smaller messages.
 	- `perMessageDeflate` [&lt;Object&gt;][Object] | [&lt;boolean&gt;][boolean] Passed to the underlying [WebSocket][WebSocket] to configure automatic [message compression](https://www.rfc-editor.org/rfc/rfc7692#section-7). **Default:** Compresses messages at least `8192` bytes (8 KiB) in size.
 	- Any option allowed in [`http.request()`](https://nodejs.org/api/http.html#httprequesturl-options-callback) or [`https.request()`](https://nodejs.org/api/https.html#httpsrequesturl-options-callback).
 - Returns: [&lt;BlueClient&gt;][BlueClient]
