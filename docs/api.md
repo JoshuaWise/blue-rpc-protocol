@@ -18,7 +18,7 @@
 - `options` [&lt;Object&gt;][Object]
 	- `server` [&lt;http.Server&gt;][HTTPServer] an HTTP or HTTPS server instance to attach to.
 	- `methods` [&lt;Object&gt;][Object] A map of RPC-style methods to serve.
-	- `maxPayload` [&lt;number&gt;][number] The maximum accepted size of incoming WebSocket messages (in bytes). **Default:** `1048576` (1 MiB).
+	- `maxPayload` [&lt;number&gt;][number] The maximum accepted size of incoming WebSocket messages (in bytes). **Default:** `1048576` (1 MiB). Note that byte streams are not affected by this, as they break large payloads into many smaller messages.
 	- `perMessageDeflate` [&lt;Object&gt;][Object] | [&lt;boolean&gt;][boolean] Passed to the underlying [WebSocketServer][WebSocketServer] to configure automatic compression. **Default:** Compresses messages at least `8192` bytes (8 KiB) in size.
 	- `verifyClient` [&lt;Function&gt;][Function] Passed to the underlying [WebSocketServer][WebSocketServer] to reject incoming connections. **Default**: `null`.
 	- `logger` [&lt;Function&gt;][Function] If provided, auto-generated server logs will be passed to this function, for convenience. **Default**: `null`.
@@ -27,9 +27,9 @@
 
 Creates and starts a [WebSocketServer](https://github.com/websockets/ws/blob/master/doc/ws.md#class-websocketserver) that uses BlueRPC to serve the given `methods`. By default, port `80` is used for [http.Servers][HTTPServer] and port `443` is used for [https.Servers][HTTPSServer], but you can pass any custom `port` you like.
 
-All method handlers will receive a [MethodContext][MethodContext] as their second parameter, which exposes metadata about the invocation. If the client sends a stream, but the method handler returns without using it, the stream will automatically be cleaned up, so you don't have to worry about resource management.
-
 The returned promise will not resolve until the server is ready to accept connections.
+
+All method handlers will receive a [MethodContext][MethodContext] as their second parameter, which exposes metadata about the invocation. Also, if the client sends a stream, but the method handler returns without using it, the stream will automatically be cleaned up, so you don't have to worry about resource management.
 
 #### Configuring `perMessageDeflate`
 
@@ -49,7 +49,7 @@ const perMessageDeflate = {
 
 - `url` [&lt;string&gt;][string] The URL of the BlueRPC server to connect to.
 - `options` [&lt;Object&gt;][Object]
-	- `maxPayload` [&lt;number&gt;][number] The maximum accepted size of incoming WebSocket messages (in bytes). **Default:** `1048576` (1 MiB).
+	- `maxPayload` [&lt;number&gt;][number] The maximum accepted size of incoming WebSocket messages (in bytes). **Default:** `1048576` (1 MiB). Note that byte streams are not affected by this, as they break large payloads into many smaller messages.
 	- `perMessageDeflate` [&lt;Object&gt;][Object] | [&lt;boolean&gt;][boolean] Passed to the underlying [WebSocket][WebSocket] to configure automatic [message compression](https://www.rfc-editor.org/rfc/rfc7692#section-7). **Default:** Compresses messages at least `8192` bytes (8 KiB) in size.
 	- Any option allowed in [`http.request()`](https://nodejs.org/api/http.html#httprequesturl-options-callback) or [`https.request()`](https://nodejs.org/api/https.html#httpsrequesturl-options-callback).
 - Returns: [&lt;BlueClient&gt;][BlueClient]
@@ -79,7 +79,7 @@ If you pass an [AbortSignal][AbortSignal], you'll be able to cancel the RPC call
 - `param` [&lt;any&gt;][any] The value to send to the remote method.
 - Returns: [&lt;Promise][Promise][&lt;undefined&gt;][undefined][&gt;][Promise]
 
-This is the same as [client.invoke()](#clientinvokemethodname-param-abortsignal) except that it returns nothing and it cannot be aborted. In BlueRPC, notifications are a way of invoking remote methods without needing an RPC response. The returned promise resolves as soon as the notification is successfully sent.
+This is the same as [client.invoke()](#clientinvokemethodname-param-abortsignal) except that it returns nothing and it cannot be aborted. In BlueRPC, notifications are a way of invoking remote methods without needing a response. The returned promise resolves as soon as the notification is successfully sent.
 
 ### client.cancel()
 
@@ -93,7 +93,7 @@ Closes all open WebSocket connections, cancelling any RPC calls or streams that 
 
 - [&lt;AbortSignal&gt;][AbortSignal]
 
-Read-only property communicating whether this RPC method was aborted by the client. Note that the client can trigger this explicitly but it will also be triggered automatically if the WebSocket connection closes.
+Read-only property communicating whether this RPC method was aborted by the client. Note that the client can abort calls explicitly but they will also be aborted automatically if the WebSocket connection closes.
 
 ### context.isAborted
 
