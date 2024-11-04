@@ -34,8 +34,8 @@ module.exports = ({ ...options } = {}) => {
 		if (maxPayload !== Infinity && maxPayload > 0x7fffffff) {
 			throw new RangeError('Expected "maxPayload" option to be no greater than 2147483647');
 		}
-		if (maxPayload !== 0 && maxPayload < 0x40000) {
-			throw new RangeError('Expected "maxPayload" option to be no less than 262144');
+		if (maxPayload !== 0 && maxPayload < 131200) {
+			throw new RangeError('Expected "maxPayload" option to be no less than 131200');
 		}
 	}
 	if (perMessageDeflate !== undefined && typeof perMessageDeflate !== 'object' && typeof perMessageDeflate !== 'boolean' || Array.isArray(perMessageDeflate)) {

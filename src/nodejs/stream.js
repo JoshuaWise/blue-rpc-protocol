@@ -6,7 +6,7 @@ const onDestroy = Symbol('onDestroy'); // TODO: replace Symbol with WeakMaps
 
 exports.Class = Readable;
 exports.canWriteNull = false; // Node.js streams are weird
-exports.isLocked = (stream) => stream.readableFlowing !== null;
+exports.isLocked = (stream) => stream.readableFlowing !== null; // TODO: this doesn't work for paused streams
 exports.isOctetStream = (stream) => stream.readableObjectMode !== true;
 
 // Used to create a new stream so we can receive it over BlueRPC.

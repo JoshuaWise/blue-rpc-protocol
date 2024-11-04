@@ -6,8 +6,9 @@ const Stream = require('./stream');
 // and destination). Most modern filesystems use a 4 KiB block size, but there's
 // no harm in going a bit larger to account for future evolutions in hardware.
 // We use 64 KiB to match the default highWaterMark of streams created by
-// fs.createReadStream(). Enforcing a chunk size also ensures that Stream Chunk
-// messages are never larger than 256 KiB, per the BlueRPC specification.
+// fs.createReadStream(). Enforcing a chunk size is also necessary to ensure
+// that Stream Chunk messages never contain Stream Data larger than 128 KiB in
+// size, as required by the BlueRPC specification.
 const IDEAL_CHUNK_SIZE = 1024 * 64;
 
 // The HIGH_WATER_MARK determines how much outgoing data we'll buffer before
@@ -101,6 +102,9 @@ module.exports = class StreamSender {
 	// ideally sized. Only sends smaller chunks if the output buffer is low
 	// or if the stream has ended.
 	_flushChunks() {
+		// TODO: sending multiple chunks synchronously like this reduces the
+		//   fairness/responsiveness that could be acheived with an "event loop"
+		//   that interleaves chunks from multiple streams (and other messages).
 		while (
 			this._chunksSize >= IDEAL_CHUNK_SIZE
 			|| this._chunksSize && (

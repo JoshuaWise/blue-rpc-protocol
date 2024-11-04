@@ -26,7 +26,7 @@ BlueRPC works by sending WebSocket messages between Peers. Some messages represe
 
 Every message in BlueRPC is serialized as an Array with a fixed number of elements. The first element is always an Integer, identifying the type of the message. The remaining elements depend on the message type.
 
-If a Peer receives a message that is not an Array, or otherwise does not adhere to the serializations defined by this specification, it SHOULD close the WebSocket connection with a status code of "1008". For example, if a Peer receives a message Array with a different number of elements than defined by this specification, it SHOULD close the WebSocket connection with a status code of "1008". Likewise, if a Peer receives a message that is an Array whose first element is not an Integer, it SHOULD close the WebSocket connection with a status code of "1008".
+If a Peer receives a message that is not an Array, or otherwise does not adhere to the serializations defined by this specification, it SHOULD close the WebSocket connection with a status code of "1008". For example, if a Peer receives a message that is an Array whose first element is not an Integer, it SHOULD close the WebSocket connection with a status code of "1008". Likewise, if a Peer receives a message Array with fewer elements than defined by this specification, it SHOULD close the WebSocket connection with a status code of "1008". However, if a Peer receives a message Array with *more* elements than defined by this specification, the message MUST be handled normally, and the additional elements MUST be ignored; such elements are reserved for future versions of this specification.
 
 If a Peer receives a message that is an Array whose first element is an Integer with a value of "10" or any negative number, it SHOULD close the WebSocket connection with a status code of "1008". Otherwise, if a Peer receives a message that is an Array whose first element is an Integer not defined by this specification, it MUST be ignored; such messages are reserved for future versions of this specification.
 
@@ -49,7 +49,7 @@ Each Request is coupled with a Request ID. Request IDs MUST be unique among all 
 
 When a Server receives a Request, it MUST reply with a Response message containing the same Request ID (except in the case of Notifications, discussed later). While the Server is handling the Request, it MUST store the associated Request ID within a set of "open Request IDs". If a Server receives a Request with a Request ID that is already in its set of "open Request IDs", it SHOULD close the WebSocket connection with a status code of "1008".
 
-If a Client receives a Request, it SHOULD close the WebSocket connection with a status code of "1008".
+If a Client receives a Request, it SHOULD close the WebSocket connection with a status code of "1008", as that is not a valid message type for Clients to receive.
 
 ### 4.1. Notification message
 
@@ -85,7 +85,7 @@ After a Server sends a Response, it is RECOMMENDED that implementations cancel a
 
 If a Client receives a Response, it MUST remove the associated Request ID from the set of "open Request IDs". If a Client receives a Response whose Request ID is not within the set of "open Request IDs", it MUST ignore it.
 
-If a Server receives a Response, it SHOULD close the WebSocket connection with a status code of "1008".
+If a Server receives a Response, it SHOULD close the WebSocket connection with a status code of "1008", as that is not a valid message type for Servers to receive.
 
 ## 6. Cancellation message
 
@@ -102,7 +102,7 @@ After a Server receives a Cancellation, it SHOULD NOT ever send a Response with 
 
 When a Client cancels an RPC call, it is RECOMMENDED that implementations also cancel any Streams that were sent in the associated Request.
 
-If a Client receives a Cancellation, it SHOULD close the WebSocket connection with a status code of "1008".
+If a Client receives a Cancellation, it SHOULD close the WebSocket connection with a status code of "1008", as that is not a valid message type for Clients to receive.
 
 ## 7. Stream
 
@@ -208,9 +208,9 @@ It is RECOMMENDED for BlueRPC Server and Client implementations to support the [
 
 ### 8.2. WebSocket payload limits
 
-Implementations MAY enforce a limit on the size of individual WebSocket messages that they receive, to limit memory consumption. However, implementations MUST support receiving WebSocket messages at least 256 KiB in size.
+Implementations MAY enforce a limit on the size of individual WebSocket messages that they receive, to limit memory consumption. However, implementations MUST be capable of receiving WebSocket messages with at least 131,200 bytes of ["Application data"][1]. If the [permessage-deflate][4] WebSocket extension is being used, the implementation also MUST be capable of receiving messages with at least 131,200 bytes of "Application data" *after* decompression.
 
-When sending Stream Chunks associated with an Octet Stream, Peers SHOULD limit the size of each Stream Chunk to be less than or equal to 256 KiB.
+When sending Stream Chunks associated with an Octet Stream, Peers SHOULD limit each slice of Stream Data to be less than or equal to 128 KiB (131,072 bytes). This will ensure that the total payload length (including any overhead from MessagePack serialization and permessage-deflate compression) will be no greater than 131,200 bytes, thus ensuring that all conforming implementations will be capable of receiving the Stream Chunk. Note that implementations MAY choose to send smaller slices of Stream Data, for performance reasons. It is RECOMMENDED to size slices at 64 KiB or 128 KiB to maximize throughput, or 32 KiB or 16 KiB to maximize responsiveness.
 
 If a Peer receives a message whose size exceeds their supported limit, they SHOULD close the WebSocket connection with a status code of "1009".
 
